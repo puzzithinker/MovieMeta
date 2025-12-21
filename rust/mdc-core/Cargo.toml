@@ -1,0 +1,32 @@
+[package]
+name = "mdc-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+regex = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+tempfile = "3.8"
+
+[[bench]]
+name = "number_parser_bench"
+harness = false
+
+[[bench]]
+name = "scanner_bench"
+harness = false

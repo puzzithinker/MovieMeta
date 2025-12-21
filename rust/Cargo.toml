@@ -1,0 +1,60 @@
+[workspace]
+members = [
+    "mdc-core",
+    "mdc-scraper",
+    "mdc-image",
+    "mdc-storage",
+    "mdc-api",
+    "mdc-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Movie Data Capture Contributors"]
+license = "MIT"
+
+[workspace.dependencies]
+# Core dependencies
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+regex = "1.10"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP & Web
+reqwest = { version = "0.11", features = ["json", "cookies"] }
+scraper = "0.18"
+quick-xml = { version = "0.31", features = ["serialize"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tokio-tungstenite = "0.21"
+
+# Image processing
+image = "0.24"
+imageproc = "0.24"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# Configuration
+ini = "1.3"
+config = "0.14"
+configparser = "3.1"
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Utilities
+url = "2.5"
+walkdir = "2.4"
+
+# Development
+criterion = "0.5"

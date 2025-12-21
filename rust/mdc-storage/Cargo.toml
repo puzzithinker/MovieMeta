@@ -1,0 +1,17 @@
+[package]
+name = "mdc-storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+mdc-core = { path = "../mdc-core" }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+configparser = "3.1"
+tracing = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
