@@ -1,14 +1,14 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod client;
+pub mod cloudscraper;
+pub mod http;
+pub mod metadata;
+pub mod registry;
+pub mod scraper;
+pub mod scrapers;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use client::ScraperClient;
+pub use cloudscraper::CloudScraperClient;
+pub use http::{HttpBackend, HttpClient, HttpClientBuilder, HttpConfig};
+pub use metadata::MovieMetadata;
+pub use registry::ScraperRegistry;
+pub use scraper::{Scraper, ScraperConfig};

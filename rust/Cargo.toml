@@ -29,7 +29,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # HTTP & Web
-reqwest = { version = "0.11", features = ["json", "cookies"] }
+reqwest = { version = "0.11", features = ["json", "cookies", "rustls-tls"], default-features = false }
 scraper = "0.18"
 quick-xml = { version = "0.31", features = ["serialize"] }
 axum = "0.7"

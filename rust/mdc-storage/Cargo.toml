@@ -12,6 +12,10 @@ thiserror = { workspace = true }
 configparser = "3.1"
 tracing = { workspace = true }
 serde = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4", "serde"] }
 
 [dev-dependencies]
 tempfile = "3.8"
+tokio = { workspace = true, features = ["full"] }

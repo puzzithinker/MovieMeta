@@ -400,6 +400,39 @@ impl Scanner {
     }
 }
 
+/// Convenience function for simple directory scanning
+///
+/// This is a simplified interface that scans a directory for video files
+/// matching the given media types, without advanced features like NFO checking.
+pub async fn scan_directory(path: &Path, media_types: &[&str]) -> Result<Vec<PathBuf>> {
+    let media_types_owned: Vec<String> = media_types.iter().map(|s| {
+        if s.starts_with('.') {
+            s.to_string()
+        } else {
+            format!(".{}", s)
+        }
+    }).collect();
+
+    let config = ScannerConfig {
+        source_folder: path.to_path_buf(),
+        media_types: media_types_owned,
+        main_mode: 1,
+        link_mode: 0,
+        nfo_skip_days: 0,
+        failed_list_path: None,
+        ignore_failed_list: true,
+        success_folder: None,
+        escape_folders: vec![],
+        scan_hardlink: false,
+        cli_regex: None,
+        debug: false,
+    };
+
+    let scanner = Scanner::new(config);
+    let (files, _stats) = scanner.scan().await?;
+    Ok(files)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

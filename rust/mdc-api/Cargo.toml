@@ -1,6 +1,45 @@
 [package]
 name = "mdc-api"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
+# Core dependencies
+mdc-core = { path = "../mdc-core" }
+mdc-storage = { path = "../mdc-storage" }
+mdc-scraper = { path = "../mdc-scraper" }
+
+# Web framework
+axum = { workspace = true, features = ["ws"] }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "trace"] }
+tokio = { workspace = true, features = ["full"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# WebSocket
+tokio-tungstenite = { workspace = true }
+futures-util = "0.3"
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+
+# Database (for error conversions)
+sqlx = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"

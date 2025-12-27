@@ -1,6 +1,15 @@
 [package]
 name = "mdc-scraper"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1.89"
+scraper.workspace = true
