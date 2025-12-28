@@ -164,6 +164,12 @@ fn clean_filename(filename: &str) -> String {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
+    // Strip numeric date prefixes: 0201-, 20240201-, etc. (common in organized collections)
+    // Match 4-8 digits followed by dash/underscore at the start
+    if let Ok(re) = Regex::new(r"^\d{4,8}[-_]") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
     // Strip quality suffixes: -HD, -FHD, -1080P, -4K, FULLHD, .HQ, etc.
     // Must come before part marker removal to handle cases like "MOVIE-HD-1"
     // Match with or without leading separator, before extension or at end
@@ -590,5 +596,20 @@ mod tests {
         assert_eq!(clean_filename("MOVIE-1080P"), "MOVIE");
         assert_eq!(clean_filename("TEST-FHD-CD1"), "TEST-FHD");
         assert_eq!(clean_filename("MOVIE-PART2"), "MOVIE");
+        // Date prefix stripping
+        assert_eq!(clean_filename("0201-SNIS091"), "SNIS091");
+        assert_eq!(clean_filename("20240201-ABC-123"), "ABC-123");
+    }
+
+    #[test]
+    fn test_date_prefix_stripping() {
+        // Test files with date prefixes
+        assert_eq!(get_number("0201-SNIS-091.mp4", None).unwrap(), "SNIS-091");
+        // Without dash in code - the date prefix should be stripped
+        let result = get_number("0201-SNIS091.mp4", None).unwrap();
+        println!("Extracted from '0201-SNIS091.mp4': {}", result);
+        // Should extract SNIS091, not 0201-SNIS091
+        assert!(!result.contains("0201"), "Should not contain date prefix '0201'");
+        assert!(result.contains("SNIS"), "Should contain 'SNIS'");
     }
 }
