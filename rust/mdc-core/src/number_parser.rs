@@ -149,6 +149,12 @@ fn get_number_by_dict(filename: &str) -> Option<String> {
 fn clean_filename(filename: &str) -> String {
     let mut cleaned = filename.to_string();
 
+    // Strip parenthesized quality markers at start: (HD), (FHD), (4K), etc.
+    // Fixes: (HD)avop-212A.HD.mp4 → avop-212A.HD.mp4
+    if let Ok(re) = Regex::new(r"(?i)^\(?(HD|FHD|4K|1080P|720P|480P|UHD)\)?[-_]?") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
     // Strip website tags: [xxx.com], [xxx], etc.
     if let Ok(re) = Regex::new(r"\[([^\]]+)\]") {
         cleaned = re.replace_all(&cleaned, "").to_string();
@@ -170,18 +176,73 @@ fn clean_filename(filename: &str) -> String {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
-    // Strip quality suffixes: -HD, -FHD, -1080P, -4K, FULLHD, .HQ, etc.
-    // Must come before part marker removal to handle cases like "MOVIE-HD-1"
-    // Match with or without leading separator, before extension or at end
-    if let Ok(re) = Regex::new(r"(?i)[-_.]?(HD|FHD|4K|1080P|720P|480P|H\.?265|H\.?264|HEVC|X265|X264|FULLHD|HQ|UHD)(\.|$)") {
-        cleaned = re.replace_all(&cleaned, "$2").to_string();
-    }
-
-    // Strip part markers: -1, -2, A, B, _1, _2, cd1, cd2, part1, pt2, etc.
-    // This is more aggressive than strip_suffix and runs earlier
+    // Strip part markers EARLY: -1, -2, A, B, _1, _2, cd1, cd2, part1, pt2, etc.
+    // This MUST run before quality marker removal so TEST-FHD-CD1 becomes TEST-FHD, then TEST
     // Match before extension or at end
     if let Ok(re) = Regex::new(r"(?i)[-_]?(cd|part|pt|disk|disc)[-_]?[12AB](\.|$)") {
         cleaned = re.replace_all(&cleaned, "$2").to_string();
+    }
+
+    // Strip quality markers that directly follow digits with NO separator (e.g., "CZBD-015FULLHD.mp4")
+    // This handles cases like 015FULLHD, 123HD, 456FHD, etc.
+    if let Ok(re) = Regex::new(r"(?i)(\d)(FULLHD|1080P|720P|480P|H\.?265|H\.?264|X265|X264|HEVC|FHD|4K|UHD|HQ|HD)(\.|$)") {
+        cleaned = re.replace_all(&cleaned, "$1$3").to_string();
+    }
+
+    // Strip quality markers that appear after dashes following numbers (after valid codes)
+    // Fixes: DSAMBD-18-H265-1080P.mp4 → DSAMBD-18.mp4
+    // This runs FIRST to handle multiple consecutive quality markers in one go
+    // Only strips when quality marker comes AFTER digits (end of valid code)
+    // This prevents stripping "heyzo_hd_1234" where hd is part of the original name
+    // IMPORTANT: Longer patterns first to avoid partial matches (H265 before HD, FULLHD before HD, etc.)
+    if let Ok(re) = Regex::new(r"(?i)(\d+)[-_](H\.?265|H\.?264|FULLHD|1080P|720P|480P|X265|X264|HEVC|FHD|4K|UHD|HD|HQ).*?(\.|$)") {
+        cleaned = re.replace_all(&cleaned, "$1$3").to_string();
+    }
+
+    // Strip common quality markers at end using simple string replacement
+    // These suffixes are always noise when at the very end
+    let quality_suffixes = [
+        "-1080P", "_1080P", "-720P", "_720P", "-480P", "_480P",
+        "-FULLHD", "_FULLHD", "-FHD", "_FHD", "-4K", "_4K",
+        "-UHD", "_UHD", "-HQ", "_HQ",
+    ];
+    for suffix in &quality_suffixes {
+        if cleaned.to_uppercase().ends_with(suffix) {
+            let len = cleaned.len() - suffix.len();
+            cleaned.truncate(len);
+            break;
+        }
+    }
+
+    // Also strip HD at end, but only if NOT followed by dash+letters (to preserve HD-IPX, HD-SSIS)
+    if cleaned.to_uppercase().ends_with("-HD") || cleaned.to_uppercase().ends_with("_HD") {
+        // Check if this looks like it might be part of a code
+        let temp = cleaned.to_uppercase();
+        if !temp.contains("HD-") {
+            // HD is a suffix, not part of code
+            let len = cleaned.len() - 3; // Remove "-HD" or "_HD"
+            cleaned.truncate(len);
+        }
+    }
+
+    // Strip quality markers before file extension
+    if let Ok(re) = Regex::new(r"(?i)[-_](FULLHD|1080P|720P|480P|FHD|4K|UHD|HQ)\.") {
+        cleaned = re.replace_all(&cleaned, ".").to_string();
+    }
+
+    // Also handle HD before extension (check not part of code like HD-IPX)
+    if cleaned.to_uppercase().contains("-HD.") || cleaned.to_uppercase().contains("_HD.") {
+        let temp = cleaned.to_uppercase();
+        if !temp.contains("HD-") {
+            cleaned = cleaned.replace("-HD.", ".").replace("_HD.", ".").replace("-hd.", ".").replace("_hd.", ".");
+        }
+    }
+
+    // Strip Japanese/Chinese characters (actress names, descriptions)
+    // Fixes: hnd-809 神宮寺ナオ.mp4 → hnd-809.mp4
+    // Keep only the code part (before first space + CJK character)
+    if let Ok(re) = Regex::new(r"[\s　]+[\p{Han}\p{Hiragana}\p{Katakana}].*$") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
     // Clean up multiple consecutive separators (-- or __)
@@ -594,7 +655,8 @@ mod tests {
         assert_eq!(clean_filename("[Thz.la]jufd-643"), "jufd-643");
         assert_eq!(clean_filename("site.com-ABC-123"), "ABC-123");
         assert_eq!(clean_filename("MOVIE-1080P"), "MOVIE");
-        assert_eq!(clean_filename("TEST-FHD-CD1"), "TEST-FHD");
+        // TEST-FHD-CD1: FHD is stripped as quality marker, then CD1 is stripped as part marker
+        assert_eq!(clean_filename("TEST-FHD-CD1"), "TEST");
         assert_eq!(clean_filename("MOVIE-PART2"), "MOVIE");
         // Date prefix stripping
         assert_eq!(clean_filename("0201-SNIS091"), "SNIS091");
@@ -611,5 +673,34 @@ mod tests {
         // Should extract SNIS091, not 0201-SNIS091
         assert!(!result.contains("0201"), "Should not contain date prefix '0201'");
         assert!(result.contains("SNIS"), "Should contain 'SNIS'");
+    }
+
+    #[test]
+    fn test_parentheses_quality_markers() {
+        // Priority 1: Strip parenthesized quality markers at start
+        assert_eq!(get_number("(HD)avop-212A.HD.mp4", None).unwrap(), "AVOP-212A");
+        assert_eq!(get_number("(FHD)ABC-123.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(get_number("(4K)XYZ-456.mp4", None).unwrap(), "XYZ-456");
+        assert_eq!(get_number("(1080P)TEST-001.mkv", None).unwrap(), "TEST-001");
+    }
+
+    #[test]
+    fn test_japanese_text_stripping() {
+        // Priority 2: Strip Japanese/Chinese characters (actress names, descriptions)
+        // Space + Japanese should be stripped
+        assert_eq!(get_number("hnd-809 神宮寺ナオ.mp4", None).unwrap(), "HND-809");
+        assert_eq!(get_number("ABC-123 波多野結衣.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(get_number("SSIS-001 明日花キララ.mp4", None).unwrap(), "SSIS-001");
+        // Full-width space (　) should also be handled
+        assert_eq!(get_number("IPX-456　桜空もも.mp4", None).unwrap(), "IPX-456");
+    }
+
+    #[test]
+    fn test_quality_markers_mid_string() {
+        // Priority 3: Strip quality markers that appear after dashes mid-string
+        assert_eq!(get_number("DSAMBD-18-H265-1080P.mp4", None).unwrap(), "DSAMBD-18");
+        assert_eq!(get_number("ABC-123-FHD-720P.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(get_number("XYZ-456-X264-HD.mkv", None).unwrap(), "XYZ-456");
+        assert_eq!(get_number("TEST-001-HEVC-4K.mp4", None).unwrap(), "TEST-001");
     }
 }
