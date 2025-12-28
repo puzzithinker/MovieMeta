@@ -1,8 +1,25 @@
 //! File operations for organizing movie files
+//!
+//! Provides cross-platform file operations including move, copy, and linking.
+//!
+//! # Platform Considerations
+//!
+//! - **Hard links**: Fully supported on all platforms via `std::fs::hard_link`
+//! - **Soft links (symlinks)**:
+//!   - Unix/Linux/macOS: Works without special privileges
+//!   - Windows: Requires administrator privileges or Developer Mode (Windows 10+)
+//!   - Recommendation: Use hard links (--link-mode 2) on Windows for better compatibility
+//! - **Move operations**: Fully cross-platform with automatic fallback to copy+delete
 
 use anyhow::{Context, Result};
 use std::fs;
+
+#[cfg(unix)]
 use std::os::unix::fs as unix_fs;
+
+#[cfg(windows)]
+use std::os::windows::fs as windows_fs;
+
 use std::path::{Path, PathBuf};
 
 use crate::processor::LinkMode;
@@ -50,6 +67,20 @@ pub fn copy_file(src: &Path, dest: &Path) -> Result<()> {
 }
 
 /// Create a symbolic link
+///
+/// # Platform-specific behavior
+///
+/// - **Unix/Linux/macOS**: Creates a single symlink for both files and directories
+/// - **Windows**: Automatically detects file vs directory and uses appropriate function
+///   - Requires administrator privileges OR Windows 10+ Developer Mode
+///   - Consider using hard links (LinkMode::HardLink) or move mode (LinkMode::Move) as alternatives
+///
+/// # Errors
+///
+/// - Fails if parent directory cannot be created
+/// - Fails if existing destination cannot be removed
+/// - On Windows: Fails with helpful message if symlink privileges are insufficient
+#[cfg(unix)]
 pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
     // Ensure destination directory exists
     if let Some(parent) = dest.parent() {
@@ -65,6 +96,58 @@ pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
 
     unix_fs::symlink(src, dest)
         .with_context(|| format!("Failed to create symlink: {} -> {}", dest.display(), src.display()))?;
+
+    tracing::info!("Created soft link: {} -> {}", dest.display(), src.display());
+    Ok(())
+}
+
+/// Create a symbolic link
+///
+/// # Platform-specific behavior
+///
+/// - **Unix/Linux/macOS**: Creates a single symlink for both files and directories
+/// - **Windows**: Automatically detects file vs directory and uses appropriate function
+///   - Requires administrator privileges OR Windows 10+ Developer Mode
+///   - Consider using hard links (LinkMode::HardLink) or move mode (LinkMode::Move) as alternatives
+///
+/// # Errors
+///
+/// - Fails if parent directory cannot be created
+/// - Fails if existing destination cannot be removed
+/// - On Windows: Fails with helpful message if symlink privileges are insufficient
+#[cfg(windows)]
+pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
+    // Ensure destination directory exists
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {:?}", parent))?;
+    }
+
+    // Remove existing link if present
+    if dest.exists() || dest.symlink_metadata().is_ok() {
+        fs::remove_file(dest)
+            .with_context(|| format!("Failed to remove existing link: {:?}", dest))?;
+    }
+
+    // Detect if source is a file or directory
+    let metadata = fs::metadata(src)
+        .with_context(|| format!("Failed to read source metadata: {}", src.display()))?;
+
+    let result = if metadata.is_dir() {
+        windows_fs::symlink_dir(src, dest)
+    } else {
+        windows_fs::symlink_file(src, dest)
+    };
+
+    result.with_context(|| {
+        format!(
+            "Failed to create symlink: {} -> {}. \
+            On Windows, symlinks require administrator privileges or Developer Mode. \
+            Consider using hard links (--link-mode 2) or move mode (--link-mode 0) instead.",
+            dest.display(),
+            src.display()
+        )
+    })?;
 
     tracing::info!("Created soft link: {} -> {}", dest.display(), src.display());
     Ok(())
@@ -217,6 +300,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore)] // Skip on Windows by default (requires privileges)
     fn test_create_soft_link() {
         let temp = TempDir::new().unwrap();
         let src = temp.path().join("source.txt");
@@ -225,13 +309,25 @@ mod tests {
         File::create(&src).unwrap();
         std::fs::write(&src, "test content").unwrap();
 
-        create_soft_link(&src, &link).unwrap();
+        let result = create_soft_link(&src, &link);
 
-        assert!(link.exists());
-        assert_eq!(std::fs::read_to_string(&link).unwrap(), "test content");
+        #[cfg(unix)]
+        {
+            result.unwrap();
+            assert!(link.exists());
+            assert_eq!(std::fs::read_to_string(&link).unwrap(), "test content");
+            // Verify it's actually a symlink
+            assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        }
 
-        // Verify it's actually a symlink
-        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        #[cfg(windows)]
+        {
+            // May succeed with privileges, or fail gracefully
+            if let Ok(_) = result {
+                assert!(link.exists());
+                assert_eq!(std::fs::read_to_string(&link).unwrap(), "test content");
+            }
+        }
     }
 
     #[test]
@@ -287,5 +383,46 @@ mod tests {
         assert_eq!(moved.len(), 2);
         assert!(!subtitle1.exists()); // Original should be moved
         assert!(dest_dir.join("new_movie.srt").exists());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_windows_symlink_privilege_error() {
+        let temp = TempDir::new().unwrap();
+        let src = temp.path().join("source.txt");
+        let link = temp.path().join("link.txt");
+
+        File::create(&src).unwrap();
+
+        let result = create_soft_link(&src, &link);
+
+        // Verify error message is helpful when it fails
+        if let Err(e) = result {
+            let err_msg = e.to_string();
+            assert!(
+                err_msg.contains("administrator privileges") || err_msg.contains("Developer Mode"),
+                "Error message should explain Windows privilege requirements: {}",
+                err_msg
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_windows_directory_symlink() {
+        let temp = TempDir::new().unwrap();
+        let src_dir = temp.path().join("source_dir");
+        let link_dir = temp.path().join("link_dir");
+
+        fs::create_dir(&src_dir).unwrap();
+        File::create(src_dir.join("file.txt")).unwrap();
+
+        let result = create_soft_link(&src_dir, &link_dir);
+
+        if let Ok(_) = result {
+            // Verify directory symlink works
+            assert!(link_dir.exists());
+            assert!(link_dir.join("file.txt").exists());
+        }
     }
 }

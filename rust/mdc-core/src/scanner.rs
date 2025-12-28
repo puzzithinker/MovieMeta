@@ -162,6 +162,7 @@ fn has_hardlinks(path: &Path) -> bool {
 
     #[cfg(windows)]
     {
+        let _ = path; // Explicitly mark as unused
         // Windows doesn't easily expose nlink count
         false
     }
