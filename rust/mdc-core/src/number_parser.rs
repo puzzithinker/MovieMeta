@@ -144,6 +144,49 @@ fn get_number_by_dict(filename: &str) -> Option<String> {
     None
 }
 
+/// Clean filename by removing website tags, quality markers, and other noise
+/// This runs BEFORE number extraction to improve accuracy
+fn clean_filename(filename: &str) -> String {
+    let mut cleaned = filename.to_string();
+
+    // Strip website tags: [xxx.com], [xxx], etc.
+    if let Ok(re) = Regex::new(r"\[([^\]]+)\]") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
+    // Strip email/username prefixes: user@domain@, username@site.com@
+    if let Ok(re) = Regex::new(r"^[^@]+@[^@]+@") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
+    // Strip domain prefixes: domain.com-, site.tv-, etc.
+    if let Ok(re) = Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de)-") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
+    // Strip quality suffixes: -HD, -FHD, -1080P, -4K, FULLHD, .HQ, etc.
+    // Must come before part marker removal to handle cases like "MOVIE-HD-1"
+    // Match with or without leading separator, before extension or at end
+    if let Ok(re) = Regex::new(r"(?i)[-_.]?(HD|FHD|4K|1080P|720P|480P|H\.?265|H\.?264|HEVC|X265|X264|FULLHD|HQ|UHD)(\.|$)") {
+        cleaned = re.replace_all(&cleaned, "$2").to_string();
+    }
+
+    // Strip part markers: -1, -2, A, B, _1, _2, cd1, cd2, part1, pt2, etc.
+    // This is more aggressive than strip_suffix and runs earlier
+    // Match before extension or at end
+    if let Ok(re) = Regex::new(r"(?i)[-_]?(cd|part|pt|disk|disc)[-_]?[12AB](\.|$)") {
+        cleaned = re.replace_all(&cleaned, "$2").to_string();
+    }
+
+    // Clean up multiple consecutive separators (-- or __)
+    if let Ok(re) = Regex::new(r"[-_]{2,}") {
+        cleaned = re.replace_all(&cleaned, "-").to_string();
+    }
+
+    // Clean up leading/trailing separators
+    cleaned.trim_matches(|c| c == '-' || c == '_' || c == ' ').to_string()
+}
+
 /// Strip common suffixes from the number and normalize
 fn strip_suffix(file_number: &str) -> String {
     let mut result = file_number.to_string();
@@ -209,30 +252,33 @@ pub fn get_number(file_path: &str, custom_regexs: Option<&str>) -> Result<String
         .and_then(|f| f.to_str())
         .ok_or_else(|| anyhow!("Invalid file path"))?;
 
-    // Try custom regexes first
+    // Clean the filename first to remove website tags, quality markers, etc.
+    let cleaned_filepath = clean_filename(filepath);
+
+    // Try custom regexes first (on cleaned filename)
     if let Some(regexs) = custom_regexs {
         for regex_str in regexs.split_whitespace() {
             if let Ok(re) = Regex::new(regex_str) {
-                if let Some(m) = re.find(filepath) {
+                if let Some(m) = re.find(&cleaned_filepath) {
                     return Ok(m.as_str().to_string());
                 }
             }
         }
     }
 
-    // Try special site rules
-    if let Some(number) = get_number_by_dict(filepath) {
+    // Try special site rules (on cleaned filename)
+    if let Some(number) = get_number_by_dict(&cleaned_filepath) {
         return Ok(number);
     }
 
-    // Check for subtitle markers or Japanese characters
+    // Check for subtitle markers or Japanese characters (check original filepath for these)
     let has_sub_marker = filepath.contains("字幕组")
         || filepath.to_uppercase().contains("SUB")
         || Regex::new(r"[\u30a0-\u30ff]+").unwrap().is_match(filepath);
 
     if has_sub_marker {
-        let mut cleaned = get_g_spat().replace_all(filepath, "").to_string();
-        cleaned = Regex::new(r"\[.*?\]").unwrap().replace_all(&cleaned, "").to_string();
+        // Use cleaned_filepath here since we already stripped tags
+        let mut cleaned = get_g_spat().replace_all(&cleaned_filepath, "").to_string();
         cleaned = cleaned.replace(".chs", "").replace(".cht", "");
 
         if let Some(dot_pos) = cleaned.find('.') {
@@ -241,9 +287,9 @@ pub fn get_number(file_path: &str, custom_regexs: Option<&str>) -> Result<String
         }
     }
 
-    // Handle filenames with - or _
-    if filepath.contains('-') || filepath.contains('_') {
-        let mut filename = get_g_spat().replace_all(filepath, "").to_string();
+    // Handle filenames with - or _ (use cleaned version)
+    if cleaned_filepath.contains('-') || cleaned_filepath.contains('_') {
+        let mut filename = get_g_spat().replace_all(&cleaned_filepath, "").to_string();
 
         // Remove date patterns like [2024-01-01] -
         filename = Regex::new(r"\[\d{4}-\d{1,2}-\d{1,2}\] - ")
@@ -299,19 +345,25 @@ pub fn get_number(file_path: &str, custom_regexs: Option<&str>) -> Result<String
     }
 
     // Handle filenames without - (FANZA CID, Western formats)
+    // Use cleaned version for these checks too
 
     // Western format: xxx.YY.MM.DD
     if let Ok(re) = Regex::new(r"[a-zA-Z]+\.\d{2}\.\d{2}\.\d{2}") {
-        if let Some(m) = re.find(filepath) {
+        if let Some(m) = re.find(&cleaned_filepath) {
             return Ok(m.as_str().to_string());
         }
     }
 
-    // Extract filename before extension
-    if let Some(dot_pos) = filepath.rfind('.') {
-        let before_dot = &filepath[..dot_pos];
+    // Extract filename before extension (from cleaned version)
+    if let Some(dot_pos) = cleaned_filepath.rfind('.') {
+        let before_dot = &cleaned_filepath[..dot_pos];
         let cleaned = before_dot.replace('_', "-");
         return Ok(cleaned);
+    }
+
+    // If cleaned version has no extension, just return it
+    if !cleaned_filepath.is_empty() {
+        return Ok(cleaned_filepath.replace('_', "-"));
     }
 
     Err(anyhow!("Could not extract number from: {}", file_path))
@@ -464,5 +516,79 @@ mod tests {
     #[test]
     fn test_western_format() {
         assert_eq!(get_number("x-art.18.05.15.mp4", None).unwrap(), "x-art.18.05.15");
+    }
+
+    // New tests for filename cleaning functionality
+
+    #[test]
+    fn test_clean_website_tags() {
+        // Test various website tag patterns
+        assert_eq!(get_number("[Thz.la]jufd-643.mp4", None).unwrap(), "JUFD-643");
+        assert_eq!(get_number("[7sht.me]SSIS-123.mp4", None).unwrap(), "SSIS-123");
+        assert_eq!(get_number("[ses23.com]ABC-456.avi", None).unwrap(), "ABC-456");
+    }
+
+    #[test]
+    fn test_clean_email_username_prefixes() {
+        // Test email/username@ patterns
+        let result = get_number("roger92402094@www.sexinsex.net@AVGL-012.avi", None).unwrap();
+        assert_eq!(result, "AVGL-012");
+    }
+
+    #[test]
+    fn test_clean_domain_prefixes() {
+        // Test domain.com- patterns
+        // Note: BEB077 without dash stays as BEB077 (no automatic dash insertion)
+        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB077");
+        assert_eq!(get_number("www.site.com-ABC-123.mp4", None).unwrap(), "ABC-123");
+        // With dash in original, it's preserved
+        assert_eq!(get_number("jp.myav.tv-BEB-077.avi", None).unwrap(), "BEB-077");
+    }
+
+    #[test]
+    fn test_clean_quality_suffixes() {
+        // Test quality marker removal
+        assert_eq!(get_number("CZBD-015FULLHD.mp4", None).unwrap(), "CZBD-015");
+        assert_eq!(get_number("ABC-123-FHD.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(get_number("XYZ-456-1080P.mkv", None).unwrap(), "XYZ-456");
+        assert_eq!(get_number("TEST-789-4K.mp4", None).unwrap(), "TEST-789");
+        assert_eq!(get_number("MOVIE-001-H265.mp4", None).unwrap(), "MOVIE-001");
+    }
+
+    #[test]
+    fn test_clean_combined_patterns() {
+        // Test multiple cleaning patterns at once
+        assert_eq!(get_number("[Thz.la]jufd-643-FHD.mp4", None).unwrap(), "JUFD-643");
+        assert_eq!(get_number("[site.com]ABC-123-1080P-C.mp4", None).unwrap(), "ABC-123");
+    }
+
+    #[test]
+    fn test_clean_part_markers() {
+        // Test part marker removal (cd1, cd2, etc.)
+        assert_eq!(get_number("ABC-123-cd1.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(get_number("XYZ-456-part2.avi", None).unwrap(), "XYZ-456");
+    }
+
+    #[test]
+    fn test_real_world_problematic_files() {
+        // Real filenames from user's failed list
+        assert_eq!(get_number("[Thz.la]jufd-643.mp4", None).unwrap(), "JUFD-643");
+
+        let result1 = get_number("roger92402094@www.sexinsex.net@AVGL-012.avi", None).unwrap();
+        assert_eq!(result1, "AVGL-012");
+
+        // BEB077 without dash stays as BEB077
+        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB077");
+        assert_eq!(get_number("CZBD-015FULLHD.mp4", None).unwrap(), "CZBD-015");
+    }
+
+    #[test]
+    fn test_clean_filename_function() {
+        // Direct tests of the clean_filename function
+        assert_eq!(clean_filename("[Thz.la]jufd-643"), "jufd-643");
+        assert_eq!(clean_filename("site.com-ABC-123"), "ABC-123");
+        assert_eq!(clean_filename("MOVIE-1080P"), "MOVIE");
+        assert_eq!(clean_filename("TEST-FHD-CD1"), "TEST-FHD");
+        assert_eq!(clean_filename("MOVIE-PART2"), "MOVIE");
     }
 }

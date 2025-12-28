@@ -143,12 +143,11 @@ fn test_complex_filenames() {
 
 #[test]
 fn test_with_brackets() {
-    // Note: Python doesn't handle brackets specially - they're just treated as part of filename
-    // [ThZu.Cc] gets parsed as THZU
-    assert_eq!(get_number("[ThZu.Cc]SSIS-001.mp4", None).unwrap(), "THZU");
-    // For this one, it should still work if the pattern matches after brackets
-    let result = get_number("[JAV]ABP-123[HD].mp4", None).unwrap();
-    assert!(result.contains("ABP") || result.contains("JAV"));
+    // NEW BEHAVIOR: Brackets are now stripped by clean_filename(), allowing correct extraction
+    // [ThZu.Cc] is removed, so SSIS-001 is correctly extracted (not THZU)
+    assert_eq!(get_number("[ThZu.Cc]SSIS-001.mp4", None).unwrap(), "SSIS-001");
+    // Both [JAV] and [HD] are stripped, ABP-123 is extracted
+    assert_eq!(get_number("[JAV]ABP-123[HD].mp4", None).unwrap(), "ABP-123");
 }
 
 #[test]
