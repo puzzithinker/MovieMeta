@@ -8,6 +8,128 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+/// Result of number parsing with dual ID support
+///
+/// This structure provides both human-readable and API-compatible ID formats,
+/// along with detected attributes and multi-part information.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedNumber {
+    /// Human-readable ID for display and most scrapers (e.g., "SSIS-123")
+    pub id: String,
+
+    /// Content ID for DMM/API queries (e.g., "ssis00123")
+    /// Lowercase, zero-padded to 5 digits minimum
+    pub content_id: String,
+
+    /// Part number if multi-part detected (1, 2, etc.)
+    pub part_number: Option<u8>,
+
+    /// Detected attributes from filename
+    pub attributes: ParsedAttributes,
+}
+
+impl ParsedNumber {
+    /// Create a ParsedNumber from a display ID
+    pub fn from_id(id: String) -> Self {
+        let content_id = convert_to_content_id(&id);
+        Self {
+            id,
+            content_id,
+            part_number: None,
+            attributes: ParsedAttributes::default(),
+        }
+    }
+
+    /// Create a ParsedNumber from a display ID with part number
+    pub fn from_id_with_part(id: String, part: Option<u8>) -> Self {
+        let content_id = convert_to_content_id(&id);
+        Self {
+            id,
+            content_id,
+            part_number: part,
+            attributes: ParsedAttributes::default(),
+        }
+    }
+}
+
+impl std::fmt::Display for ParsedNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
+impl From<ParsedNumber> for String {
+    fn from(parsed: ParsedNumber) -> Self {
+        parsed.id
+    }
+}
+
+/// Attributes detected during parsing
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ParsedAttributes {
+    /// Chinese subtitles detected (-C suffix)
+    pub cn_sub: bool,
+
+    /// Uncensored content detected (-U or -UC suffix)
+    pub uncensored: bool,
+
+    /// Special site detected (tokyo-hot, carib, fc2, etc.)
+    pub special_site: Option<String>,
+}
+
+/// Parser configuration
+#[derive(Debug, Clone)]
+pub struct ParserConfig {
+    /// Custom regex patterns to try before built-in patterns
+    pub custom_regexs: Vec<String>,
+
+    /// Strings to remove during filename cleaning
+    pub removal_strings: Vec<String>,
+
+    /// Enable strict mode for non-standard formats
+    pub strict_mode: bool,
+
+    /// Capture group index for ID in custom regex (default: 1)
+    pub regex_id_match: usize,
+
+    /// Capture group index for part number in custom regex (default: 2)
+    pub regex_pt_match: usize,
+
+    /// Comma-separated uncensored prefixes
+    pub uncensored_prefixes: String,
+}
+
+impl Default for ParserConfig {
+    fn default() -> Self {
+        Self {
+            custom_regexs: Vec::new(),
+            removal_strings: get_default_removal_strings(),
+            strict_mode: false,
+            regex_id_match: 1,
+            regex_pt_match: 2,
+            uncensored_prefixes: String::new(),
+        }
+    }
+}
+
+/// Get default removal strings (from Javinizer)
+fn get_default_removal_strings() -> Vec<String> {
+    vec![
+        "22-sht.me".to_string(),
+        "1080p".to_string(),
+        "720p".to_string(),
+        "480p".to_string(),
+        "h.264".to_string(),
+        "h.265".to_string(),
+        "hevc".to_string(),
+        "x264".to_string(),
+        "x265".to_string(),
+        "uncensored".to_string(),
+        "leaked".to_string(),
+        "hack".to_string(),
+    ]
+}
+
 /// Pre-processing pattern to remove website prefixes, quality markers, and suffixes
 static G_SPAT: OnceLock<Regex> = OnceLock::new();
 
@@ -142,6 +264,129 @@ fn get_number_by_dict(filename: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Convert display ID to DMM content ID format
+///
+/// Transforms human-readable IDs to API-compatible format by:
+/// 1. Lowercasing all letters
+/// 2. Removing hyphens/underscores
+/// 3. Zero-padding numeric portion to 5 digits minimum
+///
+/// # Examples
+/// ```
+/// # use mdc_core::number_parser::convert_to_content_id;
+/// assert_eq!(convert_to_content_id("SSIS-123"), "ssis00123");
+/// assert_eq!(convert_to_content_id("ABP-1"), "abp00001");
+/// assert_eq!(convert_to_content_id("FC2-PPV-1234567"), "fc2ppv1234567");
+/// ```
+pub fn convert_to_content_id(display_id: &str) -> String {
+    // Pattern: ^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$
+    // Extract prefix, digits, and suffix
+
+    // Handle special formats
+    let lower = display_id.to_lowercase();
+
+    // FC2 special handling: FC2-PPV-1234567 → fc2ppv1234567
+    if lower.starts_with("fc2") {
+        return lower.replace("-", "").replace("_", "");
+    }
+
+    // HEYZO special handling: HEYZO-1234 → heyzo01234
+    if lower.starts_with("heyzo") {
+        let digits: String = lower.chars().filter(|c| c.is_numeric()).collect();
+        let padded = format!("{:0>5}", digits);
+        return format!("heyzo{}", padded);
+    }
+
+    // Tokyo-Hot special handling: n1234, k0123 → keep as-is (already content format)
+    let re_tokyohot = Regex::new(r"^(cz|gedo|k|n|red|se)\d+$").unwrap();
+    if re_tokyohot.is_match(&lower) {
+        return lower;
+    }
+
+    // Standard format: ABC-123 → abc00123
+    let re = Regex::new(r"^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$").unwrap();
+    if let Some(caps) = re.captures(display_id) {
+        let prefix = caps[1].to_lowercase();
+        let digits = &caps[2];
+        let suffix = caps.get(3).map_or("", |m| m.as_str()).to_lowercase();
+
+        // Pad digits to 5 places
+        let padded = format!("{:0>5}", digits);
+
+        return format!("{}{}{}", prefix, padded, suffix);
+    }
+
+    // Fallback: just lowercase and remove separators
+    lower.replace("-", "").replace("_", "")
+}
+
+/// Convert content ID to display ID format
+///
+/// Transforms API-compatible IDs to human-readable format by:
+/// 1. Uppercasing letters
+/// 2. Inserting hyphen between prefix and digits
+/// 3. Trimming leading zeros (minimum 3 digits)
+///
+/// # Examples
+/// ```
+/// # use mdc_core::number_parser::convert_to_display_id;
+/// assert_eq!(convert_to_display_id("ssis00123"), "SSIS-123");
+/// assert_eq!(convert_to_display_id("abp00001"), "ABP-001");
+/// assert_eq!(convert_to_display_id("mide00099"), "MIDE-099");
+/// ```
+pub fn convert_to_display_id(content_id: &str) -> String {
+    // Handle special formats
+    let lower = content_id.to_lowercase();
+
+    // FC2 special handling: fc2ppv1234567 → FC2-PPV-1234567
+    if lower.starts_with("fc2") {
+        let digits: String = lower.chars().filter(|c| c.is_numeric()).collect();
+        if lower.contains("ppv") {
+            return format!("FC2-PPV-{}", digits);
+        } else {
+            return format!("FC2-{}", digits);
+        }
+    }
+
+    // HEYZO special handling: heyzo01234 → HEYZO-1234
+    if lower.starts_with("heyzo") {
+        let digits: String = lower.chars().filter(|c| c.is_numeric()).collect();
+        let trimmed = digits.trim_start_matches('0');
+        let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
+        return format!("HEYZO-{}", final_digits);
+    }
+
+    // Tokyo-Hot special handling: n01234, k0123 → n1234, k123 (no hyphen)
+    let re_tokyohot = Regex::new(r"^([a-z]+)(\d+)$").unwrap();
+    if let Some(caps) = re_tokyohot.captures(&lower) {
+        let prefix = &caps[1];
+        if matches!(prefix, "cz" | "gedo" | "k" | "n" | "red" | "se") {
+            let digits = &caps[2];
+            let trimmed = digits.trim_start_matches('0');
+            let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
+            return format!("{}{}", prefix, final_digits);
+        }
+    }
+
+    // Standard format: abc00123 → ABC-123
+    let re = Regex::new(r"^([a-z]+)(\d+)([a-z]*)$").unwrap();
+    if let Some(caps) = re.captures(&lower) {
+        let prefix = caps[1].to_uppercase();
+        let digits = &caps[2];
+        let suffix = caps.get(3).map_or(String::new(), |m| m.as_str().to_uppercase());
+
+        // Trim leading zeros but keep at least 3 digits
+        let trimmed = digits.trim_start_matches('0');
+        let num_value = trimmed.parse::<usize>().unwrap_or(0);
+        let final_digits = format!("{:03}", num_value);
+
+        return format!("{}-{}{}", prefix, final_digits, suffix);
+    }
+
+    // Fallback: just uppercase
+    content_id.to_uppercase()
 }
 
 /// Clean filename by removing website tags, quality markers, and other noise
@@ -290,13 +535,234 @@ fn strip_suffix(file_number: &str) -> String {
         }
     }
 
+    // Check if this is a Tokyo-Hot ID (should remain lowercase)
+    let tokyo_hot_re = Regex::new(r"^(?i)(cz|gedo|k|n|red|se)\d{2,4}$").unwrap();
+    if tokyo_hot_re.is_match(&result) {
+        // Tokyo-Hot IDs remain lowercase
+        return result.replace('_', "-").to_lowercase();
+    }
+
     // Replace underscores with hyphens and uppercase
     result.replace('_', "-").to_uppercase()
+}
+
+/// Parse movie number from filename with dual ID support
+///
+/// This is the new recommended API that returns both display and content IDs,
+/// along with detected attributes and multi-part information.
+///
+/// # Arguments
+///
+/// * `file_path` - Full file path or just the filename
+/// * `config` - Optional parser configuration
+///
+/// # Examples
+///
+/// ```
+/// use mdc_core::number_parser::parse_number;
+///
+/// let result = parse_number("SSIS-123.mp4", None).unwrap();
+/// assert_eq!(result.id, "SSIS-123");
+/// assert_eq!(result.content_id, "ssis00123");
+/// ```
+pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<ParsedNumber> {
+    let default_config = ParserConfig::default();
+    let config = config.unwrap_or(&default_config);
+
+    // Extract just the filename from the path
+    let filepath = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .ok_or_else(|| anyhow!("Invalid file path"))?;
+
+    // Clean the filename first to remove website tags, quality markers, etc.
+    let cleaned_filepath = clean_filename(filepath);
+
+    // Try custom regexes first (on cleaned filename) with capture group support
+    if !config.custom_regexs.is_empty() {
+        for regex_str in &config.custom_regexs {
+            if let Ok(re) = Regex::new(regex_str) {
+                if let Some(caps) = re.captures(&cleaned_filepath) {
+                    // Extract ID from configured capture group
+                    let id = caps.get(config.regex_id_match)
+                        .map(|m| m.as_str().to_string())
+                        .or_else(|| caps.get(0).map(|m| m.as_str().to_string()))
+                        .unwrap_or_default();
+
+                    // Extract part number if configured
+                    let part = caps.get(config.regex_pt_match)
+                        .and_then(|m| m.as_str().parse::<u8>().ok());
+
+                    if !id.is_empty() {
+                        let content_id = convert_to_content_id(&id);
+                        return Ok(ParsedNumber {
+                            id,
+                            content_id,
+                            part_number: part,
+                            attributes: ParsedAttributes::default(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Try special site rules (on cleaned filename)
+    if let Some(number) = get_number_by_dict(&cleaned_filepath) {
+        let content_id = convert_to_content_id(&number);
+        let mut attrs = ParsedAttributes::default();
+
+        // Detect special site
+        if number.starts_with("n") || number.starts_with("k") || number.contains("tokyo") {
+            attrs.special_site = Some("tokyo-hot".to_string());
+        } else if Regex::new(r"\d{6}[-_]\d{3}").unwrap().is_match(&number) {
+            if number.contains('-') {
+                attrs.special_site = Some("carib".to_string());
+            } else {
+                attrs.special_site = Some("1pon".to_string());
+            }
+        } else if number.to_lowercase().contains("fc2") {
+            attrs.special_site = Some("fc2".to_string());
+        } else if number.to_uppercase().starts_with("HEYZO") {
+            attrs.special_site = Some("heyzo".to_string());
+        }
+
+        return Ok(ParsedNumber {
+            id: number,
+            content_id,
+            part_number: None,
+            attributes: attrs,
+        });
+    }
+
+    // Use the existing get_number logic to extract the base ID
+    let base_id = extract_number_internal(filepath, &cleaned_filepath)?;
+
+    // Detect attributes from suffix
+    let mut attrs = ParsedAttributes::default();
+
+    // Check for -C suffix (Chinese subtitles)
+    attrs.cn_sub = Regex::new(r"(?i)[-_]c$").unwrap().is_match(&base_id);
+
+    // Check for -U or -UC suffix (uncensored)
+    attrs.uncensored = Regex::new(r"(?i)[-_]u(c)?$").unwrap().is_match(&base_id);
+
+    // Strip the suffix to get clean ID
+    let clean_id = strip_suffix(&base_id);
+    let content_id = convert_to_content_id(&clean_id);
+
+    Ok(ParsedNumber {
+        id: clean_id,
+        content_id,
+        part_number: None,
+        attributes: attrs,
+    })
+}
+
+/// Internal helper to extract number using existing logic
+fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<String> {
+    // Check for subtitle markers or Japanese characters (check original filepath for these)
+    let has_sub_marker = filepath.contains("字幕组")
+        || filepath.to_uppercase().contains("SUB")
+        || Regex::new(r"[\u30a0-\u30ff]+").unwrap().is_match(filepath);
+
+    if has_sub_marker {
+        // Use cleaned_filepath here since we already stripped tags
+        let mut cleaned = get_g_spat().replace_all(cleaned_filepath, "").to_string();
+        cleaned = cleaned.replace(".chs", "").replace(".cht", "");
+
+        if let Some(dot_pos) = cleaned.find('.') {
+            let before_dot = &cleaned[..dot_pos];
+            return Ok(before_dot.trim().to_string());
+        }
+    }
+
+    // Handle filenames with - or _ (use cleaned version)
+    if cleaned_filepath.contains('-') || cleaned_filepath.contains('_') {
+        let mut filename = get_g_spat().replace_all(cleaned_filepath, "").to_string();
+
+        // Remove date patterns like [2024-01-01] -
+        filename = Regex::new(r"\[\d{4}-\d{1,2}-\d{1,2}\] - ")
+            .unwrap()
+            .replace_all(&filename, "")
+            .to_string();
+
+        // Special handling for FC2
+        let lower_check = filename.to_lowercase();
+        if lower_check.contains("fc2") {
+            filename = lower_check
+                .replace("--", "-")
+                .replace('_', "-")
+                .to_uppercase();
+        }
+
+        // Remove -CD1, -CD2, etc.
+        filename = Regex::new(r"(?i)[-_]cd\d{1,2}")
+            .unwrap()
+            .replace_all(&filename, "")
+            .to_string();
+
+        // After removing -CD1, check if there's still a - or _
+        if !filename.contains('-') && !filename.contains('_') {
+            if let Some(dot_pos) = filename.find('.') {
+                let before_dot = &filename[..dot_pos];
+                if let Ok(re) = Regex::new(r"\w+") {
+                    if let Some(m) = re.find(before_dot) {
+                        return Ok(m.as_str().to_string());
+                    }
+                }
+            }
+        }
+
+        // Extract the number part
+        let file_number = if let Some(dot_pos) = filename.find('.') {
+            &filename[..dot_pos]
+        } else {
+            &filename
+        };
+
+        // Try to extract alphanumeric with - and _
+        let file_number = if let Ok(re) = Regex::new(r"[\w\-_]+") {
+            re.find(file_number)
+                .map(|m| m.as_str())
+                .unwrap_or(file_number)
+        } else {
+            file_number
+        };
+
+        return Ok(file_number.to_string());
+    }
+
+    // Handle filenames without - (FANZA CID, Western formats)
+    // Use cleaned version for these checks too
+
+    // Western format: xxx.YY.MM.DD
+    if let Ok(re) = Regex::new(r"[a-zA-Z]+\.\d{2}\.\d{2}\.\d{2}") {
+        if let Some(m) = re.find(cleaned_filepath) {
+            return Ok(m.as_str().to_string());
+        }
+    }
+
+    // Extract filename before extension (from cleaned version)
+    if let Some(dot_pos) = cleaned_filepath.rfind('.') {
+        let before_dot = &cleaned_filepath[..dot_pos];
+        let cleaned = before_dot.replace('_', "-");
+        return Ok(cleaned);
+    }
+
+    // If cleaned version has no extension, just return it
+    if !cleaned_filepath.is_empty() {
+        return Ok(cleaned_filepath.replace('_', "-"));
+    }
+
+    Err(anyhow!("Could not extract number from filename"))
 }
 
 /// Extract movie number from filename
 ///
 /// This is the main entry point for number extraction, equivalent to Python's get_number()
+///
+/// **DEPRECATED**: Use `parse_number()` instead for dual ID support and attribute detection.
 ///
 /// # Arguments
 ///
@@ -313,6 +779,23 @@ fn strip_suffix(file_number: &str) -> String {
 /// assert_eq!(get_number("carib-123456-789.mp4", None).unwrap(), "123456-789");
 /// ```
 pub fn get_number(file_path: &str, custom_regexs: Option<&str>) -> Result<String> {
+    // Convert old-style custom_regexs string to new config format
+    let config = if let Some(regexs) = custom_regexs {
+        let mut cfg = ParserConfig::default();
+        cfg.custom_regexs = regexs.split_whitespace().map(|s| s.to_string()).collect();
+        Some(cfg)
+    } else {
+        None
+    };
+
+    // Use parse_number and return just the ID for backward compatibility
+    let parsed = parse_number(file_path, config.as_ref())?;
+    Ok(parsed.id)
+}
+
+/// Legacy implementation preserved for reference
+#[allow(dead_code)]
+fn get_number_legacy(file_path: &str, custom_regexs: Option<&str>) -> Result<String> {
     // Extract just the filename from the path
     let filepath = std::path::Path::new(file_path)
         .file_name()
