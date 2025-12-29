@@ -305,6 +305,16 @@ pub fn convert_to_content_id(display_id: &str) -> String {
         return lower;
     }
 
+    // T28/R18 special handling: T28-123 → t2800123, R18-456 → r1800456
+    // These have digits in the prefix (T28, R18), so handle them specially
+    let re_t28r18 = Regex::new(r"^(t-?28|r-?18)[-_]?(\d+)$").unwrap();
+    if let Some(caps) = re_t28r18.captures(&lower) {
+        let prefix = caps[1].replace("-", ""); // t28 or r18
+        let digits = &caps[2];
+        let padded = format!("{:0>5}", digits);
+        return format!("{}{}", prefix, padded);
+    }
+
     // Standard format: ABC-123 → abc00123
     let re = Regex::new(r"^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$").unwrap();
     if let Some(caps) = re.captures(display_id) {
@@ -372,6 +382,18 @@ pub fn convert_to_display_id(content_id: &str) -> String {
         }
     }
 
+    // T28/R18 special handling: t2800123 → T28-123, r1800456 → R18-456
+    let re_t28r18 = Regex::new(r"^(t28|r18)(\d+)$").unwrap();
+    if let Some(caps) = re_t28r18.captures(&lower) {
+        let prefix = caps[1].to_uppercase();
+        let digits = &caps[2];
+        // Trim leading zeros but keep at least 3 digits
+        let trimmed = digits.trim_start_matches('0');
+        let num_value = trimmed.parse::<usize>().unwrap_or(0);
+        let final_digits = format!("{:03}", num_value);
+        return format!("{}-{}", prefix, final_digits);
+    }
+
     // Standard format: abc00123 → ABC-123
     let re = Regex::new(r"^([a-z]+)(\d+)([a-z]*)$").unwrap();
     if let Some(caps) = re.captures(&lower) {
@@ -391,10 +413,73 @@ pub fn convert_to_display_id(content_id: &str) -> String {
     content_id.to_uppercase()
 }
 
+/// Insert hyphens between alphabetic and numeric parts if not already present
+///
+/// Automatically normalizes IDs like "SSIS123" to "SSIS-123" to match standard format.
+/// This is a Javinizer feature that improves parser flexibility.
+///
+/// # Arguments
+/// * `s` - The string to process
+///
+/// # Returns
+/// String with hyphens inserted between alpha and numeric parts
+///
+/// # Examples
+/// ```
+/// # use mdc_core::number_parser::insert_hyphens;
+/// assert_eq!(insert_hyphens("SSIS123"), "SSIS-123");
+/// assert_eq!(insert_hyphens("ABP1"), "ABP-1");
+/// assert_eq!(insert_hyphens("SSIS-123"), "SSIS-123"); // Already has hyphen
+/// ```
+pub fn insert_hyphens(s: &str) -> String {
+    // If already has hyphen between alpha and digit, return as-is
+    if s.contains('-') {
+        return s.to_string();
+    }
+
+    // Pattern: ([A-Za-z]+)(\d+) → $1-$2
+    // Insert hyphen between alphabetic prefix and numeric part
+    let re = Regex::new(r"^([A-Za-z]+)(\d+)(.*)$").unwrap();
+    if let Some(caps) = re.captures(s) {
+        let prefix = &caps[1];
+        let digits = &caps[2];
+        let suffix = caps.get(3).map_or("", |m| m.as_str());
+        return format!("{}-{}{}", prefix, digits, suffix);
+    }
+
+    // No match, return as-is
+    s.to_string()
+}
+
 /// Clean filename by removing website tags, quality markers, and other noise
 /// This runs BEFORE number extraction to improve accuracy
-fn clean_filename(filename: &str) -> String {
+///
+/// # Arguments
+/// * `filename` - The filename to clean
+/// * `config` - Optional configuration with custom removal strings
+fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     let mut cleaned = filename.to_string();
+
+    // Apply configurable removal strings FIRST (before other processing)
+    // This allows T28/R18 normalization to work on cleaned names
+    if let Some(cfg) = config {
+        for removal_str in &cfg.removal_strings {
+            if !removal_str.is_empty() {
+                cleaned = cleaned.replace(removal_str, "");
+            }
+        }
+    }
+
+    // Strip website tags: [xxx.com], [xxx], etc. - EARLY to allow T28/R18 normalization
+    if let Ok(re) = Regex::new(r"\[([^\]]+)\]") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
+    // Strip numeric date prefixes: 0201-, 20240201-, etc. - EARLY to allow T28/R18 normalization
+    // Match 4-8 digits followed by dash/underscore at the start
+    if let Ok(re) = Regex::new(r"^\d{4,8}[-_]") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
 
     // Strip parenthesized quality markers at start: (HD), (FHD), (4K), etc.
     // Fixes: (HD)avop-212A.HD.mp4 → avop-212A.HD.mp4
@@ -402,9 +487,15 @@ fn clean_filename(filename: &str) -> String {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
-    // Strip website tags: [xxx.com], [xxx], etc.
-    if let Ok(re) = Regex::new(r"\[([^\]]+)\]") {
-        cleaned = re.replace_all(&cleaned, "").to_string();
+    // Normalize T28/R18 prefixes: "t28123" → "T28-123", "t-28-001" → "T28-001", "r18-001" → "R18-001"
+    // This handles variations: t28, t-28, T28, T-28, r18, r-18, R18, R-18
+    // Javinizer feature: Standardize these studio IDs to consistent format
+    if let Ok(re) = Regex::new(r"(?i)^(t-?28|r-?18)[-_]?(\d+)") {
+        cleaned = re.replace(&cleaned, |caps: &regex::Captures| {
+            let prefix = caps[1].to_uppercase().replace("-", "");
+            let digits = &caps[2];
+            format!("{}-{}", prefix, digits)
+        }).to_string();
     }
 
     // Strip email/username prefixes: user@domain@, username@site.com@
@@ -414,12 +505,6 @@ fn clean_filename(filename: &str) -> String {
 
     // Strip domain prefixes: domain.com-, site.tv-, etc.
     if let Ok(re) = Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de)-") {
-        cleaned = re.replace_all(&cleaned, "").to_string();
-    }
-
-    // Strip numeric date prefixes: 0201-, 20240201-, etc. (common in organized collections)
-    // Match 4-8 digits followed by dash/underscore at the start
-    if let Ok(re) = Regex::new(r"^\d{4,8}[-_]") {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
@@ -578,7 +663,7 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
         .ok_or_else(|| anyhow!("Invalid file path"))?;
 
     // Clean the filename first to remove website tags, quality markers, etc.
-    let cleaned_filepath = clean_filename(filepath);
+    let cleaned_filepath = clean_filename(filepath, Some(config));
 
     // Try custom regexes first (on cleaned filename) with capture group support
     if !config.custom_regexs.is_empty() {
@@ -805,7 +890,7 @@ fn get_number_legacy(file_path: &str, custom_regexs: Option<&str>) -> Result<Str
         .ok_or_else(|| anyhow!("Invalid file path"))?;
 
     // Clean the filename first to remove website tags, quality markers, etc.
-    let cleaned_filepath = clean_filename(filepath);
+    let cleaned_filepath = clean_filename(filepath, None);
 
     // Try custom regexes first (on cleaned filename)
     if let Some(regexs) = custom_regexs {
@@ -1137,15 +1222,15 @@ mod tests {
     #[test]
     fn test_clean_filename_function() {
         // Direct tests of the clean_filename function
-        assert_eq!(clean_filename("[Thz.la]jufd-643"), "jufd-643");
-        assert_eq!(clean_filename("site.com-ABC-123"), "ABC-123");
-        assert_eq!(clean_filename("MOVIE-1080P"), "MOVIE");
+        assert_eq!(clean_filename("[Thz.la]jufd-643", None), "jufd-643");
+        assert_eq!(clean_filename("site.com-ABC-123", None), "ABC-123");
+        assert_eq!(clean_filename("MOVIE-1080P", None), "MOVIE");
         // TEST-FHD-CD1: FHD is stripped as quality marker, then CD1 is stripped as part marker
-        assert_eq!(clean_filename("TEST-FHD-CD1"), "TEST");
-        assert_eq!(clean_filename("MOVIE-PART2"), "MOVIE");
+        assert_eq!(clean_filename("TEST-FHD-CD1", None), "TEST");
+        assert_eq!(clean_filename("MOVIE-PART2", None), "MOVIE");
         // Date prefix stripping
-        assert_eq!(clean_filename("0201-SNIS091"), "SNIS091");
-        assert_eq!(clean_filename("20240201-ABC-123"), "ABC-123");
+        assert_eq!(clean_filename("0201-SNIS091", None), "SNIS091");
+        assert_eq!(clean_filename("20240201-ABC-123", None), "ABC-123");
     }
 
     #[test]
@@ -1427,5 +1512,149 @@ mod tests {
             get_number("prefix_CUSTOM-999.mp4", Some(custom)).unwrap(),
             "CUSTOM-999"
         );
+    }
+
+    // ===== Phase 2 Enhancement Tests =====
+
+    #[test]
+    fn test_t28_normalization() {
+        // T28 prefix normalization: t28, t-28, T28, T-28 → T28-XXX
+        assert_eq!(get_number("t28123.mp4", None).unwrap(), "T28-123");
+        assert_eq!(get_number("t-28-001.mp4", None).unwrap(), "T28-001");
+        assert_eq!(get_number("T28-456.mp4", None).unwrap(), "T28-456");
+        assert_eq!(get_number("T-28789.mp4", None).unwrap(), "T28-789");
+
+        // With quality markers
+        assert_eq!(get_number("t28123-1080P.mp4", None).unwrap(), "T28-123");
+        assert_eq!(get_number("t-28-001-FHD.mkv", None).unwrap(), "T28-001");
+    }
+
+    #[test]
+    fn test_r18_normalization() {
+        // R18 prefix normalization: r18, r-18, R18, R-18 → R18-XXX
+        assert_eq!(get_number("r18001.mp4", None).unwrap(), "R18-001");
+        assert_eq!(get_number("r-18-123.mp4", None).unwrap(), "R18-123");
+        assert_eq!(get_number("R18-456.mp4", None).unwrap(), "R18-456");
+        assert_eq!(get_number("R-18789.mp4", None).unwrap(), "R18-789");
+
+        // With quality markers
+        assert_eq!(get_number("r18001-HD.mp4", None).unwrap(), "R18-001");
+        assert_eq!(get_number("r-18-123-720P.mkv", None).unwrap(), "R18-123");
+    }
+
+    #[test]
+    fn test_insert_hyphens_function() {
+        // Test the insert_hyphens() function directly
+        assert_eq!(insert_hyphens("SSIS123"), "SSIS-123");
+        assert_eq!(insert_hyphens("ABP1"), "ABP-1");
+        assert_eq!(insert_hyphens("IPX456Z"), "IPX-456Z");
+
+        // Already has hyphen - no change
+        assert_eq!(insert_hyphens("SSIS-123"), "SSIS-123");
+        assert_eq!(insert_hyphens("ABP-1"), "ABP-1");
+
+        // With suffixes
+        assert_eq!(insert_hyphens("SSIS123A"), "SSIS-123A");
+        assert_eq!(insert_hyphens("ABP999Z"), "ABP-999Z");
+
+        // No alphabetic prefix - return as-is
+        assert_eq!(insert_hyphens("12345"), "12345");
+
+        // No numeric part - return as-is
+        assert_eq!(insert_hyphens("SSIS"), "SSIS");
+    }
+
+    #[test]
+    fn test_configurable_removal_strings() {
+        // Test configurable removal strings via ParserConfig
+        let mut config = ParserConfig::default();
+        config.removal_strings = vec![
+            "CUSTOM".to_string(),
+            "TAG".to_string(),
+            "-SPECIAL".to_string(),
+        ];
+
+        let result = parse_number("CUSTOMSSIS-123.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+
+        let result2 = parse_number("TAGIPM-456.mp4", Some(&config)).unwrap();
+        assert_eq!(result2.id, "IPM-456");
+
+        let result3 = parse_number("ABP-789-SPECIAL.mp4", Some(&config)).unwrap();
+        assert_eq!(result3.id, "ABP-789");
+    }
+
+    #[test]
+    fn test_t28_r18_with_parse_number() {
+        // T28/R18 normalization through parse_number()
+        let result = parse_number("t28123.mp4", None).unwrap();
+        assert_eq!(result.id, "T28-123");
+        assert_eq!(result.content_id, "t2800123");
+
+        let result2 = parse_number("r-18-456.mp4", None).unwrap();
+        assert_eq!(result2.id, "R18-456");
+        assert_eq!(result2.content_id, "r1800456");
+    }
+
+    #[test]
+    fn test_clean_filename_t28_r18() {
+        // Direct clean_filename tests for T28/R18
+        assert_eq!(clean_filename("t28123", None), "T28-123");
+        assert_eq!(clean_filename("t-28-001", None), "T28-001");
+        assert_eq!(clean_filename("r18456", None), "R18-456");
+        assert_eq!(clean_filename("r-18-789", None), "R18-789");
+    }
+
+    #[test]
+    fn test_clean_filename_with_config() {
+        // Test clean_filename with configurable removal strings
+        let mut config = ParserConfig::default();
+        config.removal_strings = vec!["UNWANTED".to_string(), "-JUNK".to_string()];
+
+        assert_eq!(clean_filename("UNWANTEDSSIS-123", Some(&config)), "SSIS-123");
+        assert_eq!(clean_filename("ABP-456-JUNK", Some(&config)), "ABP-456");
+        assert_eq!(clean_filename("UNWANTEDIPM-789-JUNK", Some(&config)), "IPM-789");
+    }
+
+    #[test]
+    fn test_multiple_phase2_features() {
+        // Test multiple Phase 2 features working together
+        let mut config = ParserConfig::default();
+        config.removal_strings = vec!["SITE".to_string()];
+
+        // T28 normalization + removal string
+        let result = parse_number("SITEt28123.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "T28-123");
+
+        // R18 normalization + removal string + quality marker
+        let result2 = parse_number("SITEr18-456-HD.mp4", Some(&config)).unwrap();
+        assert_eq!(result2.id, "R18-456");
+    }
+
+    #[test]
+    fn test_t28_r18_edge_cases() {
+        // Edge cases for T28/R18 normalization
+
+        // With website tags
+        assert_eq!(get_number("[site.com]t28123.mp4", None).unwrap(), "T28-123");
+        assert_eq!(get_number("[xxx]r18-456.mp4", None).unwrap(), "R18-456");
+
+        // With date prefixes
+        assert_eq!(get_number("20240101-t28123.mp4", None).unwrap(), "T28-123");
+        assert_eq!(get_number("0201-r18-456.mp4", None).unwrap(), "R18-456");
+
+        // With part markers
+        assert_eq!(get_number("t28123-cd1.mp4", None).unwrap(), "T28-123");
+        assert_eq!(get_number("r18-456-part2.mp4", None).unwrap(), "R18-456");
+    }
+
+    #[test]
+    fn test_removal_strings_empty_handling() {
+        // Test that empty removal strings are ignored
+        let mut config = ParserConfig::default();
+        config.removal_strings = vec!["".to_string(), "VALID".to_string(), "".to_string()];
+
+        let result = parse_number("VALIDSSIS-123.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
     }
 }
