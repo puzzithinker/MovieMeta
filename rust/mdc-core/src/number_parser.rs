@@ -342,7 +342,9 @@ pub fn convert_to_display_id(content_id: &str) -> String {
 
     // FC2 special handling: fc2ppv1234567 → FC2-PPV-1234567
     if lower.starts_with("fc2") {
-        let digits: String = lower.chars().filter(|c| c.is_numeric()).collect();
+        // Skip "fc2" prefix and extract only the ID digits
+        let after_fc2 = &lower[3..]; // Skip "fc2"
+        let digits: String = after_fc2.chars().filter(|c| c.is_numeric()).collect();
         if lower.contains("ppv") {
             return format!("FC2-PPV-{}", digits);
         } else {
@@ -1185,5 +1187,245 @@ mod tests {
         assert_eq!(get_number("ABC-123-FHD-720P.mp4", None).unwrap(), "ABC-123");
         assert_eq!(get_number("XYZ-456-X264-HD.mkv", None).unwrap(), "XYZ-456");
         assert_eq!(get_number("TEST-001-HEVC-4K.mp4", None).unwrap(), "TEST-001");
+    }
+
+    // ===== Dual ID Conversion Tests (Phase 1) =====
+
+    #[test]
+    fn test_convert_to_content_id_standard() {
+        // Standard JAV format: ABC-123 → abc00123
+        assert_eq!(convert_to_content_id("SSIS-123"), "ssis00123");
+        assert_eq!(convert_to_content_id("ABP-1"), "abp00001");
+        assert_eq!(convert_to_content_id("MIDE-999"), "mide00999");
+        assert_eq!(convert_to_content_id("IPX-456"), "ipx00456");
+        assert_eq!(convert_to_content_id("STARS-12345"), "stars12345");
+    }
+
+    #[test]
+    fn test_convert_to_content_id_with_suffix() {
+        // IDs with alphabetic suffixes
+        assert_eq!(convert_to_content_id("IPX-123A"), "ipx00123a");
+        assert_eq!(convert_to_content_id("SSIS-456Z"), "ssis00456z");
+        assert_eq!(convert_to_content_id("ABP-789E"), "abp00789e");
+    }
+
+    #[test]
+    fn test_convert_to_content_id_fc2() {
+        // FC2 special handling
+        assert_eq!(convert_to_content_id("FC2-PPV-1234567"), "fc2ppv1234567");
+        assert_eq!(convert_to_content_id("FC2-1234567"), "fc21234567");
+        assert_eq!(convert_to_content_id("fc2-ppv-123"), "fc2ppv123");
+    }
+
+    #[test]
+    fn test_convert_to_content_id_heyzo() {
+        // HEYZO special handling
+        assert_eq!(convert_to_content_id("HEYZO-1234"), "heyzo01234");
+        assert_eq!(convert_to_content_id("HEYZO-12"), "heyzo00012");
+        assert_eq!(convert_to_content_id("heyzo-999"), "heyzo00999");
+    }
+
+    #[test]
+    fn test_convert_to_content_id_tokyo_hot() {
+        // Tokyo-Hot IDs remain as-is (already in content format)
+        assert_eq!(convert_to_content_id("n1234"), "n1234");
+        assert_eq!(convert_to_content_id("k0123"), "k0123");
+        assert_eq!(convert_to_content_id("red123"), "red123");
+    }
+
+    #[test]
+    fn test_convert_to_display_id_standard() {
+        // Standard content ID to display: abc00123 → ABC-123
+        assert_eq!(convert_to_display_id("ssis00123"), "SSIS-123");
+        assert_eq!(convert_to_display_id("abp00001"), "ABP-001");
+        assert_eq!(convert_to_display_id("mide00999"), "MIDE-999");
+        assert_eq!(convert_to_display_id("ipx00012"), "IPX-012");
+    }
+
+    #[test]
+    fn test_convert_to_display_id_zero_trimming() {
+        // Leading zeros trimmed but minimum 3 digits preserved
+        assert_eq!(convert_to_display_id("ssis00123"), "SSIS-123");
+        assert_eq!(convert_to_display_id("abp00001"), "ABP-001");
+        assert_eq!(convert_to_display_id("mide00099"), "MIDE-099");
+        assert_eq!(convert_to_display_id("ipx00012"), "IPX-012");
+    }
+
+    #[test]
+    fn test_convert_to_display_id_fc2() {
+        // FC2 special handling
+        assert_eq!(convert_to_display_id("fc2ppv1234567"), "FC2-PPV-1234567");
+        assert_eq!(convert_to_display_id("fc21234567"), "FC2-1234567");
+    }
+
+    #[test]
+    fn test_convert_to_display_id_heyzo() {
+        // HEYZO special handling
+        assert_eq!(convert_to_display_id("heyzo01234"), "HEYZO-1234");
+        assert_eq!(convert_to_display_id("heyzo00012"), "HEYZO-12");
+    }
+
+    #[test]
+    fn test_convert_to_display_id_tokyo_hot() {
+        // Tokyo-Hot IDs remain lowercase without hyphen
+        assert_eq!(convert_to_display_id("n1234"), "n1234");
+        assert_eq!(convert_to_display_id("k0123"), "k123");
+        assert_eq!(convert_to_display_id("n01234"), "n1234");
+    }
+
+    #[test]
+    fn test_roundtrip_conversion_standard() {
+        // Display → Content → Display should be identical
+        let ids = vec!["SSIS-123", "ABP-001", "MIDE-999", "IPX-456", "STARS-001"];
+        for id in ids {
+            let content_id = convert_to_content_id(id);
+            let back = convert_to_display_id(&content_id);
+            assert_eq!(id, back, "Roundtrip failed for {}", id);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_conversion_special() {
+        // Special formats roundtrip
+        let ids = vec![
+            ("HEYZO-1234", "HEYZO-1234"),
+            ("FC2-PPV-1234567", "FC2-PPV-1234567"),
+        ];
+        for (input, expected) in ids {
+            let content_id = convert_to_content_id(input);
+            let back = convert_to_display_id(&content_id);
+            assert_eq!(expected, back, "Roundtrip failed for {}", input);
+        }
+    }
+
+    #[test]
+    fn test_parse_number_dual_ids() {
+        // parse_number() should return both IDs
+        let result = parse_number("SSIS-123.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.content_id, "ssis00123");
+        assert_eq!(result.part_number, None);
+    }
+
+    #[test]
+    fn test_parse_number_fc2_dual_ids() {
+        let result = parse_number("FC2-PPV-1234567.mp4", None).unwrap();
+        assert_eq!(result.id, "FC2-PPV-1234567");
+        assert_eq!(result.content_id, "fc2ppv1234567");
+    }
+
+    #[test]
+    fn test_parse_number_heyzo_dual_ids() {
+        let result = parse_number("HEYZO-1234.mp4", None).unwrap();
+        assert_eq!(result.id, "HEYZO-1234");
+        assert_eq!(result.content_id, "heyzo01234");
+    }
+
+    #[test]
+    fn test_parse_number_tokyo_hot_dual_ids() {
+        let result = parse_number("tokyo-hot-n1234.mp4", None).unwrap();
+        assert_eq!(result.id, "n1234");
+        assert_eq!(result.content_id, "n1234");
+        assert_eq!(result.attributes.special_site, Some("tokyo-hot".to_string()));
+    }
+
+    #[test]
+    fn test_parse_number_carib_dual_ids() {
+        let result = parse_number("carib-123456-789.mp4", None).unwrap();
+        assert_eq!(result.id, "123456-789");
+        assert_eq!(result.attributes.special_site, Some("carib".to_string()));
+    }
+
+    #[test]
+    fn test_parse_number_attributes_cn_sub() {
+        let result = parse_number("SSIS-123-C.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.attributes.cn_sub, true);
+    }
+
+    #[test]
+    fn test_parse_number_attributes_uncensored() {
+        let result = parse_number("SSIS-123-U.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.attributes.uncensored, true);
+
+        let result2 = parse_number("ABP-456-UC.mp4", None).unwrap();
+        assert_eq!(result2.id, "ABP-456");
+        assert_eq!(result2.attributes.uncensored, true);
+    }
+
+    #[test]
+    fn test_parse_number_with_config() {
+        let mut config = ParserConfig::default();
+        // Use regex without capture groups, or set regex_id_match to 0 for whole match
+        config.custom_regexs = vec![r"CUSTOM-\d+".to_string()];
+
+        let result = parse_number("prefix_CUSTOM-999_suffix.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "CUSTOM-999");
+    }
+
+    #[test]
+    fn test_parse_number_with_capture_groups() {
+        let mut config = ParserConfig::default();
+        // Regex with capture groups - group 0 is whole match, group 1 is digits
+        config.custom_regexs = vec![r"(CUSTOM-\d+)".to_string()];
+        config.regex_id_match = 1; // Extract from capture group 1
+
+        let result = parse_number("prefix_CUSTOM-999_suffix.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "CUSTOM-999");
+    }
+
+    #[test]
+    fn test_parsed_number_display() {
+        // Test Display trait implementation
+        let parsed = ParsedNumber::from_id("SSIS-123".to_string());
+        assert_eq!(format!("{}", parsed), "SSIS-123");
+    }
+
+    #[test]
+    fn test_parsed_number_into_string() {
+        // Test From<ParsedNumber> for String
+        let parsed = ParsedNumber::from_id("SSIS-123".to_string());
+        let s: String = parsed.into();
+        assert_eq!(s, "SSIS-123");
+    }
+
+    #[test]
+    fn test_content_id_edge_cases() {
+        // Very long numbers
+        assert_eq!(convert_to_content_id("STARS-123456"), "stars123456");
+
+        // Single digit
+        assert_eq!(convert_to_content_id("TEST-1"), "test00001");
+
+        // Underscore instead of hyphen
+        assert_eq!(convert_to_content_id("SSIS_123"), "ssis00123");
+    }
+
+    #[test]
+    fn test_display_id_edge_cases() {
+        // Already padded to more than 5
+        assert_eq!(convert_to_display_id("stars123456"), "STARS-123456");
+
+        // Minimum padding (3 digits)
+        assert_eq!(convert_to_display_id("test00001"), "TEST-001");
+
+        // Large numbers
+        assert_eq!(convert_to_display_id("ssis99999"), "SSIS-99999");
+    }
+
+    #[test]
+    fn test_backward_compatibility_get_number() {
+        // get_number() should still work exactly as before but use parse_number() internally
+        assert_eq!(get_number("SSIS-123.mp4", None).unwrap(), "SSIS-123");
+        assert_eq!(get_number("ABP-001.avi", None).unwrap(), "ABP-001");
+        assert_eq!(get_number("FC2-PPV-1234567.mp4", None).unwrap(), "FC2-PPV-1234567");
+
+        // Custom regex still works
+        let custom = r"CUSTOM-\d+";
+        assert_eq!(
+            get_number("prefix_CUSTOM-999.mp4", Some(custom)).unwrap(),
+            "CUSTOM-999"
+        );
     }
 }
