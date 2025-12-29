@@ -9,7 +9,7 @@ use scraper::{Html, Selector};
 use std::collections::HashMap;
 
 use crate::metadata::MovieMetadata;
-use crate::scraper::Scraper;
+use crate::scraper::{IdFormat, Scraper};
 
 /// JAVLibrary scraper implementation
 pub struct JavlibraryScraper {
@@ -82,6 +82,12 @@ impl Scraper for JavlibraryScraper {
 
     fn imagecut(&self) -> i32 {
         1 // Smart crop with face detection (JAV covers usually have faces)
+    }
+
+    fn preferred_id_format(&self) -> IdFormat {
+        // JAVLibrary requires content ID format (lowercase, zero-padded)
+        // Example: "SSIS-123" should be passed as "ssis00123" in URLs
+        IdFormat::Content
     }
 
     async fn query_number_url(&self, number: &str) -> Result<String> {

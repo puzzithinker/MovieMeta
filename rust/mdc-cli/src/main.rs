@@ -14,13 +14,13 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use mdc_core::{
-    logging, BatchProcessor, LinkMode, ProcessingMode, ProcessorConfig, ProcessingStats,
+    logging, BatchProcessor, DualId, LinkMode, ProcessingMode, ProcessorConfig, ProcessingStats,
     scanner,
 };
 use mdc_scraper::{ScraperClient, ScraperConfig, ScraperRegistry};
 use mdc_scraper::scrapers::{
-    AvmooScraper, Fc2Scraper, ImdbScraper, JavbusScraper, JavlibraryScraper, TmdbScraper,
-    TokyohotScraper,
+    AvmooScraper, DmmScraper, Fc2Scraper, ImdbScraper, JavbusScraper, JavlibraryScraper,
+    R18DevScraper, TmdbScraper, TokyohotScraper,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -371,10 +371,17 @@ async fn main() -> Result<()> {
 
     let mut registry = ScraperRegistry::new();
 
-    // Register JAV-specific scrapers first (higher priority)
+    // Register JAV-specific scrapers (in priority order)
+    // TIER 1: Official/High Quality Sources
+    registry.register(Arc::new(DmmScraper::new()));       // Official FANZA store
+    registry.register(Arc::new(R18DevScraper::new()));    // R18.com API (English)
+
+    // TIER 2: Comprehensive Aggregators
     registry.register(Arc::new(JavlibraryScraper::new()));
     registry.register(Arc::new(JavbusScraper::new()));
     registry.register(Arc::new(AvmooScraper::new()));
+
+    // TIER 3: Specialized Sources
     registry.register(Arc::new(Fc2Scraper::new()));
     registry.register(Arc::new(TokyohotScraper::new()));
 
@@ -387,14 +394,16 @@ async fn main() -> Result<()> {
     // Create batch processor
     let batch_processor = BatchProcessor::new(processor_config, cli.concurrent);
 
-    // Metadata provider function
-    let metadata_provider = Arc::new(move |number: String| {
+    // Metadata provider function with dual ID support
+    let metadata_provider = Arc::new(move |dual_id: DualId| {
         let registry_clone = registry.clone();
         let scraper_config_clone = scraper_config.clone();
 
         async move {
+            // Use search_with_ids() to pass both display and content IDs
+            // Each scraper will receive the ID format it prefers
             match registry_clone
-                .search(&number, None, &scraper_config_clone)
+                .search_with_ids(&dual_id.display, &dual_id.content, None, &scraper_config_clone)
                 .await?
             {
                 Some(metadata) => {
@@ -403,7 +412,7 @@ async fn main() -> Result<()> {
                         .context("Failed to serialize metadata")?;
                     Ok(json)
                 }
-                None => Err(anyhow::anyhow!("No metadata found for {}", number)),
+                None => Err(anyhow::anyhow!("No metadata found for {}/{}", dual_id.display, dual_id.content)),
             }
         }
     });

@@ -13,7 +13,7 @@ pub mod types;
 pub mod workflow;
 
 // Re-export commonly used types
-pub use batch::{BatchProcessor, ProcessingResult};
+pub use batch::{BatchProcessor, DualId, ProcessingResult};
 pub use file_ops::{execute_file_operation, move_file, move_subtitles, sanitize_filename};
 pub use nfo::{generate_nfo, write_nfo};
 pub use processor::{FileAttributes, LinkMode, ProcessingMode, ProcessingStats, Template};

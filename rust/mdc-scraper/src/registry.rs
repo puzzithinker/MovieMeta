@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::metadata::MovieMetadata;
-use crate::scraper::{Scraper, ScraperConfig};
+use crate::scraper::{IdFormat, Scraper, ScraperConfig};
 
 /// Registry of available scrapers
 pub struct ScraperRegistry {
@@ -44,14 +44,38 @@ impl ScraperRegistry {
     /// Search for metadata across multiple sources
     ///
     /// # Arguments
-    /// * `number` - Movie number/ID to search
+    /// * `number` - Movie number/ID to search (display or content format)
     /// * `sources` - Optional list of sources (uses defaults if None)
     /// * `config` - Scraper configuration
     ///
     /// Returns the first successful metadata result, or None if all sources fail
+    ///
+    /// # Note
+    /// This is the simple API that uses a single ID. For dual ID support (display + content),
+    /// use `search_with_ids()` instead.
     pub async fn search(
         &self,
         number: &str,
+        sources: Option<Vec<String>>,
+        config: &ScraperConfig,
+    ) -> Result<Option<MovieMetadata>> {
+        // Use the same ID for both display and content (backward compatibility)
+        self.search_with_ids(number, number, sources, config).await
+    }
+
+    /// Search for metadata with dual ID support
+    ///
+    /// # Arguments
+    /// * `display_id` - Human-readable ID (e.g., "SSIS-123")
+    /// * `content_id` - API format ID (e.g., "ssis00123")
+    /// * `sources` - Optional list of sources (uses defaults if None)
+    /// * `config` - Scraper configuration
+    ///
+    /// Each scraper will receive the ID format it prefers (display or content).
+    pub async fn search_with_ids(
+        &self,
+        display_id: &str,
+        content_id: &str,
         sources: Option<Vec<String>>,
         config: &ScraperConfig,
     ) -> Result<Option<MovieMetadata>> {
@@ -86,13 +110,28 @@ impl ScraperRegistry {
                 }
             };
 
-            match scraper.scrape(number, config).await {
+            // Select the appropriate ID format based on scraper preference
+            let scraper_id = match scraper.preferred_id_format() {
+                IdFormat::Display => display_id,
+                IdFormat::Content => content_id,
+            };
+
+            if config.debug {
+                tracing::debug!(
+                    "Using ID format {:?} for scraper '{}': {}",
+                    scraper.preferred_id_format(),
+                    source,
+                    scraper_id
+                );
+            }
+
+            match scraper.scrape(scraper_id, config).await {
                 Ok(metadata) => {
                     if metadata.is_valid() {
                         if config.debug {
                             tracing::info!(
                                 "Found metadata for [{}] from source '{}'",
-                                number,
+                                scraper_id,
                                 source
                             );
                         }
@@ -113,7 +152,7 @@ impl ScraperRegistry {
 
         // No valid metadata found
         if config.debug {
-            tracing::warn!("No metadata found for [{}] in any source", number);
+            tracing::warn!("No metadata found for [{}]/[{}] in any source", display_id, content_id);
         }
         Ok(None)
     }
@@ -178,6 +217,7 @@ impl Default for ScraperRegistry {
 mod tests {
     use super::*;
     use crate::scraper::Scraper;
+    use crate::ScraperClient;
     use async_trait::async_trait;
     use scraper::Html;
 
@@ -261,5 +301,193 @@ mod tests {
 
         let source = registry.infer_source_from_url("https://www.imdb.com/title/tt123");
         assert_eq!(source, Some("imdb".to_string()));
+    }
+
+    // ===== Phase 5: Dual ID Integration Tests =====
+
+    /// Mock scraper that records which ID it received
+    struct IdCapturingScraper {
+        source: String,
+        format: IdFormat,
+        captured_id: Arc<std::sync::Mutex<Option<String>>>,
+    }
+
+    #[async_trait]
+    impl Scraper for IdCapturingScraper {
+        fn source(&self) -> &str {
+            &self.source
+        }
+
+        fn preferred_id_format(&self) -> IdFormat {
+            self.format
+        }
+
+        async fn query_number_url(&self, number: &str) -> Result<String> {
+            // Capture the ID we received
+            *self.captured_id.lock().unwrap() = Some(number.to_string());
+            Ok(format!("http://example.com/{}", number))
+        }
+
+        fn parse_metadata(&self, _html: &Html, _url: &str) -> Result<MovieMetadata> {
+            let mut meta = MovieMetadata::default();
+            meta.number = "TEST-001".to_string();
+            meta.title = "Test Movie".to_string();
+            meta.cover = "http://example.com/cover.jpg".to_string();
+            Ok(meta)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_with_ids_display_format() {
+        // Test that Display-preferring scrapers receive the display ID
+        let captured_id = Arc::new(std::sync::Mutex::new(None));
+        let scraper = Arc::new(IdCapturingScraper {
+            source: "test_display".to_string(),
+            format: IdFormat::Display,
+            captured_id: captured_id.clone(),
+        });
+
+        let mut registry = ScraperRegistry::new();
+        registry.register(scraper);
+
+        let client = ScraperClient::new().unwrap();
+        let config = ScraperConfig::new(client);
+
+        // Search with dual IDs
+        let _ = registry
+            .search_with_ids("SSIS-123", "ssis00123", None, &config)
+            .await;
+
+        // Verify the scraper received the display ID
+        let received = captured_id.lock().unwrap();
+        assert_eq!(received.as_ref().unwrap(), "SSIS-123");
+    }
+
+    #[tokio::test]
+    async fn test_search_with_ids_content_format() {
+        // Test that Content-preferring scrapers receive the content ID
+        let captured_id = Arc::new(std::sync::Mutex::new(None));
+        let scraper = Arc::new(IdCapturingScraper {
+            source: "test_content".to_string(),
+            format: IdFormat::Content,
+            captured_id: captured_id.clone(),
+        });
+
+        let mut registry = ScraperRegistry::new();
+        registry.register(scraper);
+
+        let client = ScraperClient::new().unwrap();
+        let config = ScraperConfig::new(client);
+
+        // Search with dual IDs
+        let _ = registry
+            .search_with_ids("SSIS-123", "ssis00123", None, &config)
+            .await;
+
+        // Verify the scraper received the content ID
+        let received = captured_id.lock().unwrap();
+        assert_eq!(received.as_ref().unwrap(), "ssis00123");
+    }
+
+    #[tokio::test]
+    async fn test_search_backward_compatibility() {
+        // Test that old search() method still works (uses same ID for both)
+        let captured_id = Arc::new(std::sync::Mutex::new(None));
+        let scraper = Arc::new(IdCapturingScraper {
+            source: "test_compat".to_string(),
+            format: IdFormat::Display,
+            captured_id: captured_id.clone(),
+        });
+
+        let mut registry = ScraperRegistry::new();
+        registry.register(scraper);
+
+        let client = ScraperClient::new().unwrap();
+        let config = ScraperConfig::new(client);
+
+        // Use old search() method
+        let _ = registry.search("SSIS-123", None, &config).await;
+
+        // Verify the scraper received the ID
+        let received = captured_id.lock().unwrap();
+        assert_eq!(received.as_ref().unwrap(), "SSIS-123");
+    }
+
+    #[tokio::test]
+    async fn test_multiple_scrapers_different_formats() {
+        // Test that different scrapers receive their preferred formats
+        // We test each scraper separately since registry returns on first success
+        let captured_display = Arc::new(std::sync::Mutex::new(None));
+        let captured_content = Arc::new(std::sync::Mutex::new(None));
+
+        let display_scraper = Arc::new(IdCapturingScraper {
+            source: "display_scraper".to_string(),
+            format: IdFormat::Display,
+            captured_id: captured_display.clone(),
+        });
+
+        let content_scraper = Arc::new(IdCapturingScraper {
+            source: "content_scraper".to_string(),
+            format: IdFormat::Content,
+            captured_id: captured_content.clone(),
+        });
+
+        // Test display scraper
+        {
+            let mut registry = ScraperRegistry::new();
+            registry.register(display_scraper.clone());
+
+            let client = ScraperClient::new().unwrap();
+            let config = ScraperConfig::new(client);
+
+            let _ = registry
+                .search_with_ids("SSIS-123", "ssis00123", None, &config)
+                .await;
+
+            let display_received = captured_display.lock().unwrap();
+            assert_eq!(display_received.as_ref().unwrap(), "SSIS-123");
+        }
+
+        // Test content scraper
+        {
+            let mut registry = ScraperRegistry::new();
+            registry.register(content_scraper.clone());
+
+            let client = ScraperClient::new().unwrap();
+            let config = ScraperConfig::new(client);
+
+            let _ = registry
+                .search_with_ids("SSIS-123", "ssis00123", None, &config)
+                .await;
+
+            let content_received = captured_content.lock().unwrap();
+            assert_eq!(content_received.as_ref().unwrap(), "ssis00123");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_with_ids_fc2_format() {
+        // Test FC2 content ID format (fc2-ppv-1234567)
+        let captured_id = Arc::new(std::sync::Mutex::new(None));
+        let scraper = Arc::new(IdCapturingScraper {
+            source: "test_fc2".to_string(),
+            format: IdFormat::Content,
+            captured_id: captured_id.clone(),
+        });
+
+        let mut registry = ScraperRegistry::new();
+        registry.register(scraper);
+
+        let client = ScraperClient::new().unwrap();
+        let config = ScraperConfig::new(client);
+
+        // Search with FC2 IDs
+        let _ = registry
+            .search_with_ids("FC2-PPV-1234567", "fc2-ppv-1234567", None, &config)
+            .await;
+
+        // Verify the scraper received the content ID (lowercase)
+        let received = captured_id.lock().unwrap();
+        assert_eq!(received.as_ref().unwrap(), "fc2-ppv-1234567");
     }
 }

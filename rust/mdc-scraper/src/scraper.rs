@@ -7,6 +7,26 @@ use scraper::{Html, Selector};
 use crate::client::ScraperClient;
 use crate::metadata::MovieMetadata;
 
+/// ID format preference for scrapers
+///
+/// Different scrapers may require different ID formats:
+/// - Display: Human-readable format like "SSIS-123" (most scrapers)
+/// - Content: API format like "ssis00123" (DMM, JAVLibrary)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdFormat {
+    /// Display format: "SSIS-123" (human-readable, with hyphen)
+    Display,
+
+    /// Content format: "ssis00123" (lowercase, zero-padded, for APIs)
+    Content,
+}
+
+impl Default for IdFormat {
+    fn default() -> Self {
+        IdFormat::Display
+    }
+}
+
 /// Scraper configuration passed to each scraper
 #[derive(Debug, Clone)]
 pub struct ScraperConfig {
@@ -65,6 +85,18 @@ pub trait Scraper: Send + Sync {
     /// - 3: Download small cover
     fn imagecut(&self) -> i32 {
         1
+    }
+
+    /// Preferred ID format for this scraper
+    ///
+    /// Most scrapers use Display format (SSIS-123), but some like
+    /// DMM and JAVLibrary require Content format (ssis00123).
+    ///
+    /// # Returns
+    /// - `IdFormat::Display` - Most scrapers (default)
+    /// - `IdFormat::Content` - DMM, JAVLibrary (lowercase, zero-padded)
+    fn preferred_id_format(&self) -> IdFormat {
+        IdFormat::Display
     }
 
     /// Main scraping entry point
@@ -273,5 +305,56 @@ mod tests {
         );
         let items = scraper.select_all_text(&html, "li");
         assert_eq!(items, vec!["One", "Two", "Three"]);
+    }
+
+    // ===== Phase 5: ID Format Tests =====
+
+    #[test]
+    fn test_id_format_default() {
+        // Test that IdFormat::default() returns Display
+        assert_eq!(IdFormat::default(), IdFormat::Display);
+    }
+
+    #[test]
+    fn test_id_format_equality() {
+        // Test IdFormat enum equality
+        assert_eq!(IdFormat::Display, IdFormat::Display);
+        assert_eq!(IdFormat::Content, IdFormat::Content);
+        assert_ne!(IdFormat::Display, IdFormat::Content);
+    }
+
+    #[test]
+    fn test_scraper_default_id_format() {
+        // Test that default scrapers prefer Display format
+        let scraper = TestScraper;
+        assert_eq!(scraper.preferred_id_format(), IdFormat::Display);
+    }
+
+    struct ContentIdScraper;
+
+    #[async_trait]
+    impl Scraper for ContentIdScraper {
+        fn source(&self) -> &str {
+            "content_test"
+        }
+
+        fn preferred_id_format(&self) -> IdFormat {
+            IdFormat::Content
+        }
+
+        async fn query_number_url(&self, number: &str) -> Result<String> {
+            Ok(format!("http://example.com/{}", number))
+        }
+
+        fn parse_metadata(&self, _html: &Html, _url: &str) -> Result<MovieMetadata> {
+            Ok(MovieMetadata::default())
+        }
+    }
+
+    #[test]
+    fn test_scraper_content_id_format() {
+        // Test scraper with Content format preference
+        let scraper = ContentIdScraper;
+        assert_eq!(scraper.preferred_id_format(), IdFormat::Content);
     }
 }

@@ -25,6 +25,15 @@ pub struct ProcessingResult {
     pub error: Option<String>,
 }
 
+/// Dual ID format for scrapers
+#[derive(Debug, Clone)]
+pub struct DualId {
+    /// Display format (e.g., "SSIS-123")
+    pub display: String,
+    /// Content format (e.g., "ssis00123")
+    pub content: String,
+}
+
 /// Batch processor for concurrent movie processing
 pub struct BatchProcessor {
     /// Configuration for processing
@@ -50,13 +59,13 @@ impl BatchProcessor {
         metadata_provider: Arc<F>,
     ) -> ProcessingResult
     where
-        F: Fn(String) -> Fut + Send + Sync,
+        F: Fn(DualId) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<serde_json::Value>> + Send,
     {
-        // Extract movie number from filename
+        // Extract movie number from filename using parse_number (dual ID support)
         let file_path_str = file_path.to_string_lossy().to_string();
-        let number = match number_parser::get_number(&file_path_str, None) {
-            Ok(num) => num,
+        let parsed = match number_parser::parse_number(&file_path_str, None) {
+            Ok(p) => p,
             Err(e) => {
                 return ProcessingResult {
                     file_path,
@@ -67,14 +76,21 @@ impl BatchProcessor {
             }
         };
 
-        // Fetch metadata
-        let metadata = match metadata_provider(number.clone()).await {
+        // Extract dual IDs
+        let dual_id = DualId {
+            display: parsed.id.clone(),
+            content: parsed.content_id.clone(),
+        };
+        let number_display = parsed.id.clone();
+
+        // Fetch metadata using dual ID
+        let metadata = match metadata_provider(dual_id).await {
             Ok(meta) => meta,
             Err(e) => {
                 return ProcessingResult {
                     file_path,
                     success: false,
-                    number: Some(number),
+                    number: Some(number_display),
                     error: Some(format!("Metadata fetch error: {}", e)),
                 };
             }
@@ -83,7 +99,7 @@ impl BatchProcessor {
         // Create processing context
         let context = ProcessingContext::new(
             file_path.clone(),
-            number.clone(),
+            number_display.clone(),
             metadata,
             self.config.clone(),
         );
@@ -93,13 +109,13 @@ impl BatchProcessor {
             Ok(_) => ProcessingResult {
                 file_path,
                 success: true,
-                number: Some(number),
+                number: Some(number_display),
                 error: None,
             },
             Err(e) => ProcessingResult {
                 file_path,
                 success: false,
-                number: Some(number),
+                number: Some(number_display),
                 error: Some(format!("Processing error: {}", e)),
             },
         }
@@ -113,7 +129,7 @@ impl BatchProcessor {
         progress_callback: Option<Arc<dyn Fn(usize, usize) + Send + Sync>>,
     ) -> Result<(Vec<ProcessingResult>, ProcessingStats)>
     where
-        F: Fn(String) -> Fut + Send + Sync + 'static,
+        F: Fn(DualId) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Result<serde_json::Value>> + Send + 'static,
     {
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent));
@@ -202,10 +218,10 @@ mod tests {
         let processor = BatchProcessor::new(config, 2);
 
         // Mock metadata provider
-        let metadata_provider = Arc::new(|number: String| async move {
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
             Ok(json!({
-                "number": number,
-                "title": format!("Movie {}", number),
+                "number": dual_id.display,
+                "title": format!("Movie {}", dual_id.display),
                 "studio": "Test Studio"
             }))
         });
@@ -243,9 +259,9 @@ mod tests {
 
         let processor = BatchProcessor::new(config, 1);
 
-        let metadata_provider = Arc::new(|number: String| async move {
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
             Ok(json!({
-                "number": number,
+                "number": dual_id.display,
                 "title": "Test"
             }))
         });
@@ -285,7 +301,7 @@ mod tests {
 
         let processor = BatchProcessor::new(config, 1);
 
-        let metadata_provider = Arc::new(|_number: String| async move {
+        let metadata_provider = Arc::new(|_dual_id: DualId| async move {
             Err(anyhow::anyhow!("Metadata not found"))
         });
 

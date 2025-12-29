@@ -25,12 +25,12 @@ fn create_test_files(temp_dir: &TempDir, filenames: &[&str]) -> Vec<PathBuf> {
     paths
 }
 
-/// Mock metadata provider for testing
-fn mock_metadata_provider() -> Arc<impl Fn(String) -> futures::future::Ready<Result<serde_json::Value>> + Send + Sync> {
-    Arc::new(|number: String| {
+/// Mock metadata provider for testing (with dual ID support)
+fn mock_metadata_provider() -> Arc<impl Fn(mdc_core::DualId) -> futures::future::Ready<Result<serde_json::Value>> + Send + Sync> {
+    Arc::new(|dual_id: mdc_core::DualId| {
         futures::future::ready(Ok(json!({
-            "number": number,
-            "title": format!("Test Movie {}", number),
+            "number": dual_id.display,
+            "title": format!("Test Movie {}", dual_id.display),
             "studio": "Test Studio",
             "actor": ["Test Actor"],
             "year": "2024",

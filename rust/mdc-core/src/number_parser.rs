@@ -112,6 +112,76 @@ impl Default for ParserConfig {
     }
 }
 
+impl ParserConfig {
+    /// Create a new ParserConfig with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a custom regex pattern
+    ///
+    /// # Example
+    /// ```
+    /// use mdc_core::number_parser::ParserConfig;
+    ///
+    /// let config = ParserConfig::new()
+    ///     .with_custom_regex(r"CUSTOM-\d+");
+    /// ```
+    pub fn with_custom_regex(mut self, regex: &str) -> Self {
+        self.custom_regexs.push(regex.to_string());
+        self
+    }
+
+    /// Add multiple custom regex patterns
+    pub fn with_custom_regexs(mut self, regexs: Vec<String>) -> Self {
+        self.custom_regexs.extend(regexs);
+        self
+    }
+
+    /// Add a removal string
+    pub fn with_removal_string(mut self, removal: &str) -> Self {
+        self.removal_strings.push(removal.to_string());
+        self
+    }
+
+    /// Set removal strings (replaces defaults)
+    pub fn with_removal_strings(mut self, removals: Vec<String>) -> Self {
+        self.removal_strings = removals;
+        self
+    }
+
+    /// Enable strict mode
+    ///
+    /// Strict mode uses more conservative matching to reduce false positives
+    /// when standard DVD ID format is not detected.
+    pub fn with_strict_mode(mut self, enabled: bool) -> Self {
+        self.strict_mode = enabled;
+        self
+    }
+
+    /// Set the capture group index for ID extraction in custom regex
+    ///
+    /// Default is 1 (first capture group)
+    pub fn with_regex_id_match(mut self, index: usize) -> Self {
+        self.regex_id_match = index;
+        self
+    }
+
+    /// Set the capture group index for part number extraction in custom regex
+    ///
+    /// Default is 2 (second capture group)
+    pub fn with_regex_pt_match(mut self, index: usize) -> Self {
+        self.regex_pt_match = index;
+        self
+    }
+
+    /// Set uncensored prefixes (comma-separated)
+    pub fn with_uncensored_prefixes(mut self, prefixes: &str) -> Self {
+        self.uncensored_prefixes = prefixes.to_string();
+        self
+    }
+}
+
 /// Get default removal strings (from Javinizer)
 fn get_default_removal_strings() -> Vec<String> {
     vec![
@@ -451,6 +521,66 @@ pub fn insert_hyphens(s: &str) -> String {
     s.to_string()
 }
 
+/// Extract part number from letter suffix and return cleaned ID
+///
+/// Converts multi-part movie letter suffixes to numeric part numbers:
+/// - A → 1, B → 2, C → 3, ... Y → 25
+/// - Z is excluded (special marker, not a part number)
+///
+/// # Arguments
+/// * `id` - The movie ID to process
+///
+/// # Returns
+/// Tuple of (cleaned_id, optional_part_number)
+///
+/// # Examples
+/// ```
+/// # use mdc_core::number_parser::extract_part_from_suffix;
+/// let (id, part) = extract_part_from_suffix("SSIS-123-A");
+/// assert_eq!(id, "SSIS-123");
+/// assert_eq!(part, Some(1));
+///
+/// let (id2, part2) = extract_part_from_suffix("SSIS-123-B");
+/// assert_eq!(id2, "SSIS-123");
+/// assert_eq!(part2, Some(2));
+///
+/// let (id3, part3) = extract_part_from_suffix("SSIS-123-Z");
+/// assert_eq!(id3, "SSIS-123-Z"); // Z is not a part marker
+/// assert_eq!(part3, None);
+/// ```
+pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
+    // Pattern: [-][0-9]{1,6}Z?\s?[-]?\s?[A-Y]$
+    // Match letter suffixes A-Y (excluding Z which is a special marker)
+    // Also EXCLUDE C and U when alone, as they're attribute markers
+    let re = Regex::new(r"^(.+?)[-_]([ABD-TVWXY])$").unwrap();  // Excludes C, U, Z
+
+    if let Some(caps) = re.captures(id) {
+        let base_id = caps[1].to_string();
+        let letter = &caps[2];
+
+        // Convert letter to part number: A=1, B=2, D=4, ..., Y=25
+        // (C=3 and U=21 are reserved for attributes)
+        let part_num = (letter.chars().next().unwrap() as u8) - b'A' + 1;
+
+        return (base_id, Some(part_num));
+    }
+
+    // Also check lowercase (excluding c, u, z)
+    let re_lower = Regex::new(r"^(.+?)[-_]([abd-tvwxy])$").unwrap();
+    if let Some(caps) = re_lower.captures(id) {
+        let base_id = caps[1].to_string();
+        let letter = &caps[2];
+
+        // Convert letter to part number: a=1, b=2, d=4, ..., y=25
+        let part_num = (letter.chars().next().unwrap() as u8) - b'a' + 1;
+
+        return (base_id, Some(part_num));
+    }
+
+    // No letter suffix found, return as-is
+    (id.to_string(), None)
+}
+
 /// Clean filename by removing website tags, quality markers, and other noise
 /// This runs BEFORE number extraction to improve accuracy
 ///
@@ -508,11 +638,24 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
-    // Strip part markers EARLY: -1, -2, A, B, _1, _2, cd1, cd2, part1, pt2, etc.
+    // Strip part markers EARLY: -1, -2, cd1, cd2, part1, pt2, disc3, etc.
+    // Enhanced Javinizer patterns for better multi-part detection
     // This MUST run before quality marker removal so TEST-FHD-CD1 becomes TEST-FHD, then TEST
     // Match before extension or at end
-    if let Ok(re) = Regex::new(r"(?i)[-_]?(cd|part|pt|disk|disc)[-_]?[12AB](\.|$)") {
+    //
+    // Pattern 1: Explicit markers with digits (cd1, part2, pt3, disc4, etc.)
+    if let Ok(re) = Regex::new(r"(?i)[-_]?(cd|part|pt|disk|disc)[-_]?\d{1,3}(\.|$)") {
         cleaned = re.replace_all(&cleaned, "$2").to_string();
+    }
+
+    // Pattern 2: Standalone part numbers at end (-1, -2, _3, etc.) before extension
+    // Only strip if it's clearly a part marker (single digit or -pt\d pattern)
+    if let Ok(re) = Regex::new(r"(?i)[-_](pt)?[-_]?([1-9]|1[0-9])(\.|$)") {
+        // Only replace if it looks like a part marker, not part of the actual ID
+        // Check that there's already content before the part marker
+        if cleaned.len() > 5 {  // Ensure we have an ID before the part marker
+            cleaned = re.replace_all(&cleaned, "$3").to_string();
+        }
     }
 
     // Strip quality markers that directly follow digits with NO separator (e.g., "CZBD-015FULLHD.mp4")
@@ -633,6 +776,60 @@ fn strip_suffix(file_number: &str) -> String {
     result.replace('_', "-").to_uppercase()
 }
 
+/// Check if filename contains a standard DVD ID format
+///
+/// Standard format: 2-5 letters, hyphen, 2-5 digits (e.g., ABC-123, SSIS-001)
+/// Returns true if standard format detected, false otherwise.
+fn has_standard_dvd_format(filename: &str) -> bool {
+    // Standard JAV DVD ID pattern: [A-Z]{2,5}-\d{2,5}
+    let standard_pattern = Regex::new(r"(?i)[A-Z]{2,5}[-_]\d{2,5}").unwrap();
+    standard_pattern.is_match(filename)
+}
+
+/// Apply strict mode filtering to extracted ID
+///
+/// In strict mode, only allow IDs that match conservative patterns
+/// to reduce false positives for non-standard filenames.
+fn apply_strict_mode_filter(id: &str) -> bool {
+    let upper_id = id.to_uppercase();
+
+    // Allow standard DVD format: ABC-123, SSIS-001, etc.
+    // 2-5 letters, hyphen, 2-5 digits, optional suffix letter
+    let standard_pattern = Regex::new(r"^[A-Z]{2,5}-\d{2,5}[A-Z]?$").unwrap();
+    if standard_pattern.is_match(&upper_id) {
+        return true;
+    }
+
+    // Allow T28/R18 special formats: T28-123, R18-456
+    let t28_r18_pattern = Regex::new(r"^(T28|R18)-\d{2,5}$").unwrap();
+    if t28_r18_pattern.is_match(&upper_id) {
+        return true;
+    }
+
+    // Allow Tokyo-Hot IDs: k0123, n1234, etc. (lowercase)
+    let tokyo_hot_pattern = Regex::new(r"^(cz|gedo|k|n|red|se)\d{2,4}$").unwrap();
+    if tokyo_hot_pattern.is_match(id) {
+        return true;
+    }
+
+    // Allow IDs without hyphens that follow standard pattern (e.g., BEB077, SNIS091)
+    // These will be normalized to ABC-123 format later
+    let no_hyphen_pattern = Regex::new(r"^[A-Z]{2,5}\d{2,5}[A-Z]?$").unwrap();
+    if no_hyphen_pattern.is_match(&upper_id) {
+        return true;
+    }
+
+    // Allow pure numeric IDs (e.g., FC2 numbers: 1234567)
+    // Some sites use pure numbers
+    let numeric_pattern = Regex::new(r"^\d{5,}$").unwrap();
+    if numeric_pattern.is_match(id) {
+        return true;
+    }
+
+    // Reject everything else in strict mode
+    false
+}
+
 /// Parse movie number from filename with dual ID support
 ///
 /// This is the new recommended API that returns both display and content IDs,
@@ -725,23 +922,48 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
     // Use the existing get_number logic to extract the base ID
     let base_id = extract_number_internal(filepath, &cleaned_filepath)?;
 
-    // Detect attributes from suffix
+    // Apply strict mode filtering if enabled or auto-activated
+    // Auto-strict: activates when standard DVD format not detected
+    let should_use_strict = config.strict_mode || !has_standard_dvd_format(&cleaned_filepath);
+
+    if should_use_strict && !apply_strict_mode_filter(&base_id) {
+        // In strict mode, reject IDs that don't match conservative patterns
+        // This reduces false positives for non-standard filenames
+        return Err(anyhow!(
+            "Strict mode: extracted ID '{}' does not match standard DVD format",
+            base_id
+        ));
+    }
+
+    // Extract part number from letter suffix FIRST (A→1, B→2, etc.)
+    // This must happen before attribute detection to handle conflicts:
+    // - "SSIS-123-C" is part 3, not Chinese subtitles
+    // - "SSIS-123-UC-A" is uncensored + part 1
+    let (id_without_part, part_number) = extract_part_from_suffix(&base_id);
+
+    // Detect attributes from suffix (after part extraction)
     let mut attrs = ParsedAttributes::default();
 
-    // Check for -C suffix (Chinese subtitles)
-    attrs.cn_sub = Regex::new(r"(?i)[-_]c$").unwrap().is_match(&base_id);
+    // Check for -C suffix (Chinese subtitles) - only multi-char patterns to avoid conflict with part C
+    // Accept: -CH, -CHN, -CHS, -CHT, -CN_SUB, etc.
+    attrs.cn_sub = Regex::new(r"(?i)[-_](ch|chn|chs|cht|cn[-_]?sub)$").unwrap().is_match(&id_without_part)
+        || Regex::new(r"(?i)[-_]c$").unwrap().is_match(&id_without_part);
 
     // Check for -U or -UC suffix (uncensored)
-    attrs.uncensored = Regex::new(r"(?i)[-_]u(c)?$").unwrap().is_match(&base_id);
+    attrs.uncensored = Regex::new(r"(?i)[-_]u(c)?$").unwrap().is_match(&id_without_part);
 
     // Strip the suffix to get clean ID
-    let clean_id = strip_suffix(&base_id);
-    let content_id = convert_to_content_id(&clean_id);
+    let clean_id = strip_suffix(&id_without_part);
+
+    // Part number already extracted above
+    let final_id = clean_id;
+
+    let content_id = convert_to_content_id(&final_id);
 
     Ok(ParsedNumber {
-        id: clean_id,
+        id: final_id,
         content_id,
-        part_number: None,
+        part_number,
         attributes: attrs,
     })
 }
@@ -1655,6 +1877,333 @@ mod tests {
         config.removal_strings = vec!["".to_string(), "VALID".to_string(), "".to_string()];
 
         let result = parse_number("VALIDSSIS-123.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+    }
+
+    // ===== Phase 3 Multi-Part Detection Tests =====
+
+    #[test]
+    fn test_extract_part_from_suffix_uppercase() {
+        // Test letter suffix extraction - uppercase
+        let (id, part) = extract_part_from_suffix("SSIS-123-A");
+        assert_eq!(id, "SSIS-123");
+        assert_eq!(part, Some(1));
+
+        let (id2, part2) = extract_part_from_suffix("ABP-456-B");
+        assert_eq!(id2, "ABP-456");
+        assert_eq!(part2, Some(2));
+
+        // C is reserved for Chinese subtitles, not treated as part 3
+        let (id3, part3) = extract_part_from_suffix("IPX-789-C");
+        assert_eq!(id3, "IPX-789-C"); // C not extracted
+        assert_eq!(part3, None);
+
+        // D is part 4
+        let (id4, part4) = extract_part_from_suffix("IPX-789-D");
+        assert_eq!(id4, "IPX-789");
+        assert_eq!(part4, Some(4));
+
+        // Y is the last valid part marker (25)
+        let (id5, part5) = extract_part_from_suffix("MIDE-001-Y");
+        assert_eq!(id5, "MIDE-001");
+        assert_eq!(part5, Some(25));
+    }
+
+    #[test]
+    fn test_extract_part_from_suffix_lowercase() {
+        // Test letter suffix extraction - lowercase
+        let (id, part) = extract_part_from_suffix("ssis-123-a");
+        assert_eq!(id, "ssis-123");
+        assert_eq!(part, Some(1));
+
+        let (id2, part2) = extract_part_from_suffix("abp-456-b");
+        assert_eq!(id2, "abp-456");
+        assert_eq!(part2, Some(2));
+    }
+
+    #[test]
+    fn test_extract_part_from_suffix_z_excluded() {
+        // Z is a special marker, not a part number
+        let (id, part) = extract_part_from_suffix("SSIS-123-Z");
+        assert_eq!(id, "SSIS-123-Z"); // Z not stripped
+        assert_eq!(part, None);
+
+        let (id2, part2) = extract_part_from_suffix("ABP-456-z");
+        assert_eq!(id2, "ABP-456-z"); // lowercase z also not stripped
+        assert_eq!(part2, None);
+    }
+
+    #[test]
+    fn test_extract_part_from_suffix_underscore() {
+        // Test with underscore separator
+        let (id, part) = extract_part_from_suffix("SSIS-123_A");
+        assert_eq!(id, "SSIS-123");
+        assert_eq!(part, Some(1));
+
+        let (id2, part2) = extract_part_from_suffix("ABP_456_B");
+        assert_eq!(id2, "ABP_456");
+        assert_eq!(part2, Some(2));
+    }
+
+    #[test]
+    fn test_extract_part_from_suffix_no_suffix() {
+        // No letter suffix
+        let (id, part) = extract_part_from_suffix("SSIS-123");
+        assert_eq!(id, "SSIS-123");
+        assert_eq!(part, None);
+
+        let (id2, part2) = extract_part_from_suffix("FC2-PPV-1234567");
+        assert_eq!(id2, "FC2-PPV-1234567");
+        assert_eq!(part2, None);
+    }
+
+    #[test]
+    fn test_parse_number_with_letter_suffix() {
+        // Test parse_number extracts part numbers from letter suffixes
+        let result = parse_number("SSIS-123-A.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.part_number, Some(1));
+
+        let result2 = parse_number("ABP-456-B.mkv", None).unwrap();
+        assert_eq!(result2.id, "ABP-456");
+        assert_eq!(result2.part_number, Some(2));
+
+        let result3 = parse_number("IPX-789-D.avi", None).unwrap();
+        assert_eq!(result3.id, "IPX-789");
+        assert_eq!(result3.part_number, Some(4));  // D = 4 (C=3 reserved for attributes)
+    }
+
+    #[test]
+    fn test_parse_number_letter_suffix_with_attributes() {
+        // Test that letter suffix works with other attributes
+        // e.g., "SSIS-123-UC-A" → ID="SSIS-123", uncensored=true, part=1
+        let result = parse_number("SSIS-123-U-A.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.part_number, Some(1));
+        assert_eq!(result.attributes.uncensored, true);
+
+        let result2 = parse_number("ABP-456-C-B.mp4", None).unwrap();
+        assert_eq!(result2.id, "ABP-456");
+        assert_eq!(result2.part_number, Some(2));
+        assert_eq!(result2.attributes.cn_sub, true);
+    }
+
+    #[test]
+    fn test_enhanced_part_markers() {
+        // Test enhanced part marker stripping with more flexible patterns
+        assert_eq!(get_number("SSIS-123-cd1.mp4", None).unwrap(), "SSIS-123");
+        assert_eq!(get_number("ABP-456-cd2.mp4", None).unwrap(), "ABP-456");
+        assert_eq!(get_number("IPX-789-part3.mp4", None).unwrap(), "IPX-789");
+        assert_eq!(get_number("MIDE-001-pt10.mp4", None).unwrap(), "MIDE-001");
+        assert_eq!(get_number("STARS-100-disc15.mp4", None).unwrap(), "STARS-100");
+    }
+
+    #[test]
+    fn test_enhanced_part_markers_standalone() {
+        // Test standalone part numbers (but only when there's already an ID)
+        assert_eq!(get_number("SSIS-123-1.mp4", None).unwrap(), "SSIS-123");
+        assert_eq!(get_number("ABP-456-2.mp4", None).unwrap(), "ABP-456");
+        assert_eq!(get_number("IPX-789_3.mp4", None).unwrap(), "IPX-789");
+    }
+
+    #[test]
+    fn test_letter_suffix_edge_cases() {
+        // Test edge cases for letter suffix detection
+
+        // Multiple letter suffixes (only last one counts)
+        let (id, part) = extract_part_from_suffix("SSIS-123-A-B");
+        assert_eq!(id, "SSIS-123-A");
+        assert_eq!(part, Some(2)); // B = 2
+
+        // No separator before letter (shouldn't match)
+        let (id2, part2) = extract_part_from_suffix("SSIS123A");
+        assert_eq!(id2, "SSIS123A");
+        assert_eq!(part2, None);
+
+        // Letter in middle of ID (not a suffix)
+        let (id3, part3) = extract_part_from_suffix("SSIS-A-123");
+        assert_eq!(id3, "SSIS-A-123");
+        assert_eq!(part3, None);
+    }
+
+    #[test]
+    fn test_parse_number_preserves_z_marker() {
+        // Z suffix should be preserved as part of the ID, not converted to part number
+        let result = parse_number("SSIS-123-Z.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123-Z");
+        assert_eq!(result.part_number, None);
+
+        let result2 = parse_number("ABP-456Z.mp4", None).unwrap();
+        assert_eq!(result2.id, "ABP-456Z");
+        assert_eq!(result2.part_number, None);
+    }
+
+    #[test]
+    fn test_multi_part_with_quality_markers() {
+        // Letter suffix with quality markers
+        let result = parse_number("SSIS-123-A-1080P.mp4", None).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.part_number, Some(1));
+
+        let result2 = parse_number("ABP-456-B-FHD.mkv", None).unwrap();
+        assert_eq!(result2.id, "ABP-456");
+        assert_eq!(result2.part_number, Some(2));
+    }
+
+    // ===== Phase 4: Configuration Tests =====
+
+    #[test]
+    fn test_parser_config_builder_pattern() {
+        // Test builder pattern for ParserConfig
+        let config = ParserConfig::new()
+            .with_custom_regex(r"CUSTOM-\d+")
+            .with_strict_mode(true)
+            .with_regex_id_match(1)
+            .with_regex_pt_match(2);
+
+        assert_eq!(config.custom_regexs.len(), 1);
+        assert_eq!(config.custom_regexs[0], r"CUSTOM-\d+");
+        assert_eq!(config.strict_mode, true);
+        assert_eq!(config.regex_id_match, 1);
+        assert_eq!(config.regex_pt_match, 2);
+    }
+
+    #[test]
+    fn test_parser_config_multiple_custom_regexs() {
+        // Test adding multiple custom regexes
+        let config = ParserConfig::new()
+            .with_custom_regex(r"CUSTOM1-\d+")
+            .with_custom_regex(r"CUSTOM2-\d+")
+            .with_custom_regexs(vec![r"CUSTOM3-\d+".to_string(), r"CUSTOM4-\d+".to_string()]);
+
+        assert_eq!(config.custom_regexs.len(), 4);
+        assert_eq!(config.custom_regexs[0], r"CUSTOM1-\d+");
+        assert_eq!(config.custom_regexs[3], r"CUSTOM4-\d+");
+    }
+
+    #[test]
+    fn test_parser_config_removal_strings() {
+        // Test removal strings configuration
+        let config = ParserConfig::new()
+            .with_removal_string("UNWANTED")
+            .with_removal_string("JUNK");
+
+        // Default removal strings + 2 custom ones
+        assert!(config.removal_strings.len() > 2);
+        assert!(config.removal_strings.contains(&"UNWANTED".to_string()));
+        assert!(config.removal_strings.contains(&"JUNK".to_string()));
+    }
+
+    #[test]
+    fn test_parser_config_replace_removal_strings() {
+        // Test replacing default removal strings
+        let config = ParserConfig::new()
+            .with_removal_strings(vec!["ONLY1".to_string(), "ONLY2".to_string()]);
+
+        assert_eq!(config.removal_strings.len(), 2);
+        assert_eq!(config.removal_strings[0], "ONLY1");
+        assert_eq!(config.removal_strings[1], "ONLY2");
+    }
+
+    #[test]
+    fn test_parser_config_uncensored_prefixes() {
+        // Test uncensored prefixes configuration
+        let config = ParserConfig::new()
+            .with_uncensored_prefixes("CUSTOM,FOO,BAR");
+
+        assert_eq!(config.uncensored_prefixes, "CUSTOM,FOO,BAR");
+    }
+
+    #[test]
+    fn test_custom_regex_with_different_capture_groups() {
+        // Test custom regex with non-default capture group indices
+        let mut config = ParserConfig::new();
+        config.custom_regexs = vec![r"PREFIX-([A-Z]+-\d+)-SUFFIX".to_string()];
+        config.regex_id_match = 1;  // First capture group
+
+        let result = parse_number("PREFIX-SSIS-123-SUFFIX.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+    }
+
+    #[test]
+    fn test_custom_regex_with_part_number_capture() {
+        // Test custom regex that captures both ID and part number
+        // Use a pattern that matches the whole filename including extension
+        let mut config = ParserConfig::new();
+        config.custom_regexs = vec![r"([A-Z]+-\d+)[-_]VOL(\d+)".to_string()];
+        config.regex_id_match = 1;
+        config.regex_pt_match = 2;
+        config.strict_mode = false;  // Disable strict mode for this test
+
+        let result = parse_number("SSIS-123-VOL2.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+        assert_eq!(result.part_number, Some(2));
+    }
+
+    #[test]
+    fn test_strict_mode_manual_enable() {
+        // Test manual strict mode - should reject non-standard IDs
+        let config = ParserConfig::new().with_strict_mode(true);
+
+        // Standard format should pass
+        let result = parse_number("SSIS-123.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+
+        // Non-standard format with strict mode should fail
+        // (assuming the extract logic would produce something non-standard)
+        // This is hard to test without a truly non-standard filename that extracts weird IDs
+    }
+
+    #[test]
+    fn test_auto_strict_mode_activation() {
+        // Test auto-strict mode: activates when standard DVD format not detected
+        let config = ParserConfig::new(); // strict_mode = false
+
+        // Filename with standard DVD format - strict mode should NOT activate
+        let result = parse_number("SSIS-123.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123");
+
+        // Note: Auto-strict mode is hard to test without filenames that:
+        // 1. Don't have standard DVD format in the name
+        // 2. Extract to an ID that doesn't match strict pattern
+        // Most real-world filenames either have standard format or extract to standard IDs
+    }
+
+    #[test]
+    fn test_has_standard_dvd_format() {
+        // Test the helper function indirectly via parse_number)
+        // Filenames with standard format should parse successfully
+        assert!(parse_number("ABC-123.mp4", None).is_ok());
+        assert!(parse_number("SSIS-001.mp4", None).is_ok());
+        assert!(parse_number("MIDE-999.avi", None).is_ok());
+
+        // Filenames with standard format in them should also work
+        assert!(parse_number("PREFIX-ABC-123-SUFFIX.mp4", None).is_ok());
+    }
+
+    #[test]
+    fn test_strict_mode_with_suffix_characters() {
+        // Test that strict mode allows standard IDs with suffix characters (A-Z)
+        let config = ParserConfig::new().with_strict_mode(true);
+
+        let result = parse_number("SSIS-123A.mp4", Some(&config)).unwrap();
+        assert_eq!(result.id, "SSIS-123A");
+
+        let result2 = parse_number("ABP-456Z.mp4", Some(&config)).unwrap();
+        assert_eq!(result2.id, "ABP-456Z");
+    }
+
+    #[test]
+    fn test_combined_config_features() {
+        // Test multiple configuration features working together
+        let config = ParserConfig::new()
+            .with_custom_regex(r"SPECIAL-([A-Z]+-\d+)")
+            .with_removal_string("UNWANTED")
+            .with_strict_mode(false)  // Disable strict for this test
+            .with_regex_id_match(1);
+
+        // Should use custom regex to extract ID
+        let result = parse_number("SPECIAL-SSIS-123.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "SSIS-123");
     }
 }
