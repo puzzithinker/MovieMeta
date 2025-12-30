@@ -188,7 +188,10 @@ mod tests {
 
     #[test]
     fn test_processing_job_new() {
-        let job = ProcessingJob::new("/path/to/movie.mp4".to_string(), Some("TEST-001".to_string()));
+        let job = ProcessingJob::new(
+            "/path/to/movie.mp4".to_string(),
+            Some("TEST-001".to_string()),
+        );
 
         assert!(!job.id.is_empty());
         assert_eq!(job.file_path, "/path/to/movie.mp4");

@@ -267,7 +267,12 @@ impl ImageProcessor {
         let mut result = base.to_rgba8();
 
         // Overlay watermark with alpha blending
-        image::imageops::overlay(&mut result, &watermark.to_rgba8(), _position.0 as i64, _position.1 as i64);
+        image::imageops::overlay(
+            &mut result,
+            &watermark.to_rgba8(),
+            _position.0 as i64,
+            _position.1 as i64,
+        );
 
         Ok(DynamicImage::ImageRgba8(result))
     }

@@ -30,7 +30,9 @@ fn bench_image_load_save(c: &mut Criterion) {
         let img = create_test_image(1920, 1080, Rgba([0, 255, 0, 255]));
         let save_path = temp_dir.path().join("bench_save.png");
         b.iter(|| {
-            processor.save_image(black_box(&img), black_box(&save_path)).unwrap();
+            processor
+                .save_image(black_box(&img), black_box(&save_path))
+                .unwrap();
         })
     });
 

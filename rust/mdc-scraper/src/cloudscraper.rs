@@ -111,16 +111,18 @@ impl CloudScraperClient {
 
     /// Perform a GET request
     pub async fn get(&self, url: &str) -> Result<String> {
-        self.request("GET", url, &HashMap::new(), &HashMap::new(), &HashMap::new())
-            .await
+        self.request(
+            "GET",
+            url,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .await
     }
 
     /// Perform a POST request
-    pub async fn post(
-        &self,
-        url: &str,
-        data: &HashMap<String, String>,
-    ) -> Result<String> {
+    pub async fn post(&self, url: &str, data: &HashMap<String, String>) -> Result<String> {
         self.request("POST", url, data, &HashMap::new(), &HashMap::new())
             .await
     }
@@ -178,7 +180,11 @@ impl CloudScraperClient {
         }
 
         if self.debug {
-            tracing::debug!("CloudScraper command: {} {}", self.python_path, args.join(" "));
+            tracing::debug!(
+                "CloudScraper command: {} {}",
+                self.python_path,
+                args.join(" ")
+            );
         }
 
         // Execute Python script
@@ -200,9 +206,7 @@ impl CloudScraperClient {
     /// Check if CloudScraper is available
     pub async fn is_available(&self) -> bool {
         // Check if Python is available
-        let python_check = Command::new(&self.python_path)
-            .arg("--version")
-            .output();
+        let python_check = Command::new(&self.python_path).arg("--version").output();
 
         if python_check.is_err() {
             return false;

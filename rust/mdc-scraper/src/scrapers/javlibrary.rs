@@ -40,10 +40,9 @@ impl JavlibraryScraper {
             for row in html.select(&row_selector) {
                 if let Ok(header_sel) = Selector::parse("td.header") {
                     if let Ok(text_sel) = Selector::parse("td.text") {
-                        if let (Some(header), Some(text)) = (
-                            row.select(&header_sel).next(),
-                            row.select(&text_sel).next(),
-                        ) {
+                        if let (Some(header), Some(text)) =
+                            (row.select(&header_sel).next(), row.select(&text_sel).next())
+                        {
                             let key = header.text().collect::<String>().trim().to_string();
                             let value = text.text().collect::<String>().trim().to_string();
                             if !key.is_empty() && !value.is_empty() {
@@ -114,12 +113,7 @@ impl Scraper for JavlibraryScraper {
         if metadata.title.is_empty() {
             // Fallback to page title, remove site name
             let title = self.select_text(html, "title");
-            metadata.title = title
-                .split('-')
-                .next()
-                .unwrap_or(&title)
-                .trim()
-                .to_string();
+            metadata.title = title.split('-').next().unwrap_or(&title).trim().to_string();
         }
         metadata.title = self.clean_text(&metadata.title);
 
@@ -282,9 +276,6 @@ mod tests {
     fn test_clean_text() {
         let scraper = JavlibraryScraper::new();
         assert_eq!(scraper.clean_text("  Test   Movie  "), "Test Movie");
-        assert_eq!(
-            scraper.clean_text("Test\n\nMovie\n"),
-            "Test Movie"
-        );
+        assert_eq!(scraper.clean_text("Test\n\nMovie\n"), "Test Movie");
     }
 }

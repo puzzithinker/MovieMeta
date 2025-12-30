@@ -324,6 +324,246 @@ mdc-cli.exe "file.mp4" -g
 
 ---
 
+### "DMM/JAVLibrary not finding movies"
+
+**Problem**: DMM or JAVLibrary failing despite correct movie number
+
+**Cause**: DMM and JAVLibrary require **content ID format** (lowercase, zero-padded)
+
+**Solution**: MDC handles this automatically! Check if issue is elsewhere:
+
+1. **Verify dual ID conversion**:
+   ```cmd
+   # Run with debug to see ID conversion
+   mdc-cli.exe "SSIS-123.mp4" -g
+   ```
+
+   Should show:
+   ```
+   Display ID: SSIS-123
+   Content ID: ssis00123  ← DMM receives this format
+   ```
+
+2. **Test ID manually**:
+   - DMM URL: `https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=ssis00123/`
+   - JAVLibrary URL: `https://www.javlibrary.com/en/?v=ssis00123`
+
+3. **Common issues**:
+   - Movie too new (not in database yet)
+   - Special edition with different ID
+   - Region-exclusive release
+
+**Workaround**: Use different scraper:
+```cmd
+# Skip DMM/JAVLibrary, use JavDB instead
+mdc-cli.exe "file.mp4" -s --sources javdb,javbus
+```
+
+---
+
+### "JavDB returns 403 Forbidden"
+
+**Problem**: JavDB blocking requests without authentication
+
+**Cause**: JavDB requires session cookie for some movies
+
+**Solution 1: Add session cookie to config**
+
+1. Visit https://javdb.com in browser
+2. Login if prompted
+3. Open DevTools (F12) → Application → Cookies
+4. Copy `_jdb_session` cookie value
+5. Add to `~/.mdc/config.ini`:
+   ```ini
+   [cookies]
+   javdb.com = _jdb_session=YOUR_SESSION_TOKEN_HERE
+   ```
+
+**Solution 2: Use different scraper**:
+```cmd
+# Skip JavDB temporarily
+mdc-cli.exe "file.mp4" -s --sources dmm,r18dev,javlibrary
+```
+
+See [Cookie Configuration Guide](COOKIE-CONFIGURATION.md) for detailed instructions.
+
+---
+
+### "JAVBus shows Cloudflare challenge page"
+
+**Problem**: JAVBus protected by Cloudflare bot detection
+
+**Cause**: Cloudflare requires `cf_clearance` cookie
+
+**Solution 1: Add Cloudflare cookie**
+
+1. Visit https://javbus.com in browser
+2. Complete Cloudflare challenge if shown
+3. Open DevTools (F12) → Application → Cookies
+4. Copy `cf_clearance` cookie value
+5. Add to config.ini:
+   ```ini
+   [cookies]
+   javbus.com = cf_clearance=YOUR_CF_TOKEN_HERE
+   ```
+
+**Solution 2: Use CloudScraper backend** (future feature)
+
+**Solution 3: Use alternative scrapers**:
+```cmd
+# Use AVMOO instead (similar content)
+mdc-cli.exe "file.mp4" -s --sources avmoo,javdb,dmm
+```
+
+---
+
+### "R18Dev returns empty data"
+
+**Problem**: R18Dev API working but no metadata returned
+
+**Cause**: Movie might not be in R18 database
+
+**Diagnosis**:
+```cmd
+# Check both R18Dev endpoints
+# Display ID endpoint: /dvd_id=SSIS-123/json
+# Content ID endpoint: /combined=ssis00123/json
+```
+
+**Solution**: R18Dev has dual endpoint fallback, but some movies may not exist:
+
+1. **Try different scraper**:
+   ```cmd
+   # DMM is more comprehensive
+   mdc-cli.exe "file.mp4" -s --sources dmm,javdb,r18dev
+   ```
+
+2. **Check movie exists**:
+   - Visit https://r18.dev/dvd_id=SSIS-123/json
+   - If returns `{}`, movie not in database
+
+---
+
+### ID Format Confusion
+
+**Problem**: "Why does DMM get different ID than my filename?"
+
+**Explanation**: JAV uses dual ID formats:
+
+| Source | Format | Example | Used By |
+|--------|--------|---------|---------|
+| **Display** | UPPERCASE-123 | `SSIS-123` | Filenames, NFO, most scrapers |
+| **Content** | lowercase00123 | `ssis00123` | DMM, JAVLibrary APIs |
+
+**MDC automatically converts** between formats:
+
+```
+Filename: SSIS-123.mp4
+  ↓
+Parser extracts: "SSIS-123"
+  ↓
+Generates both:
+  - Display ID: SSIS-123  → sent to JavDB, JAVBus, R18Dev
+  - Content ID: ssis00123 → sent to DMM, JAVLibrary
+```
+
+**You don't need to do anything** - conversion is automatic!
+
+---
+
+### Special Format Handling
+
+**Problem**: "My T28/R18/FC2 movies not recognized"
+
+**T28/R18 Movies**:
+- **Filename**: `t28-123.mp4` or `T28123.mp4`
+- **Display ID**: `T28-123` (normalized)
+- **Content ID**: `t2800123` (special padding)
+- **Automatically normalized** by MDC
+
+**FC2-PPV Movies**:
+- **Filename**: `FC2-PPV-123456.mp4`
+- **IDs**: Hyphens preserved (FC2 uses hyphenated format)
+- **Special handling**: No zero-padding
+
+**Tokyo-Hot Movies**:
+- **Filename**: `n1234.mp4` or `k5678.mp4`
+- **IDs**: Lowercase prefix preserved
+- **Special handling**: Variable length (no padding)
+
+**HEYZO Movies**:
+- **Filename**: `HEYZO-1234.mp4`
+- **Content ID**: `heyzo-1234` (4-digit padding)
+
+**Debug if issues**:
+```cmd
+mdc-cli.exe "t28-123.mp4" -g
+# Check "Detected format: T28"
+# Verify "Content ID: t2800123"
+```
+
+---
+
+### Cookie Expired or Invalid
+
+**Problem**: "Cookie was working, now getting 403 errors"
+
+**Cause**: Session cookies expire after hours/days
+
+**Solution**:
+
+1. **Re-extract cookie from browser** (cookies expire!)
+2. **Update config.ini** with new cookie value
+3. **Restart MDC** to reload config
+
+**Frequency**:
+- JavDB: Session cookies typically last 24-48 hours
+- JAVBus: Cloudflare cookies may last weeks
+- Re-extract when you see 403 errors
+
+---
+
+### Scraper Priority Not Working
+
+**Problem**: "Set DMM first, but JAVBus being used"
+
+**Diagnosis**:
+```cmd
+# Run with debug
+mdc-cli.exe "file.mp4" -g
+
+# Check output:
+# "Trying scraper: dmm"
+# "Trying scraper: javdb"
+# ...
+```
+
+**Common issues**:
+
+1. **Wrong config file loaded**:
+   ```bash
+   # Check which config is loaded
+   RUST_LOG=debug mdc-cli.exe "file.mp4" -g 2>&1 | grep "Loading config"
+   ```
+
+2. **Sources override in command**:
+   ```cmd
+   # --sources flag overrides config
+   mdc-cli.exe "file.mp4" -s --sources javbus  # ← Ignores config priority
+   ```
+
+3. **DMM failing silently**:
+   - Enable debug to see why DMM failed
+   - Check for network errors, 404s, etc.
+
+**Fix**:
+```ini
+# In config.ini [priority] section
+website = dmm,r18dev,javdb,javlibrary,javbus,avmoo
+```
+
+---
+
 ## File Operation Issues
 
 ### "Failed to move file"

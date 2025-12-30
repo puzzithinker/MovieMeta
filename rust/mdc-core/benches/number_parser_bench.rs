@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use mdc_core::number_parser::get_number;
 
 fn bench_get_number(c: &mut Criterion) {
@@ -44,13 +44,9 @@ fn bench_is_uncensored(c: &mut Criterion) {
     ];
 
     for (name, number) in test_cases {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            number,
-            |b, number| {
-                b.iter(|| is_uncensored(black_box(number), None));
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(name), number, |b, number| {
+            b.iter(|| is_uncensored(black_box(number), None));
+        });
     }
 
     group.finish();
@@ -86,5 +82,10 @@ fn bench_batch_processing(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_get_number, bench_is_uncensored, bench_batch_processing);
+criterion_group!(
+    benches,
+    bench_get_number,
+    bench_is_uncensored,
+    bench_batch_processing
+);
 criterion_main!(benches);

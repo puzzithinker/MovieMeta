@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-use crate::file_ops::{execute_file_operation, get_video_extension, move_subtitles, sanitize_filename};
+use crate::file_ops::{
+    execute_file_operation, get_video_extension, move_subtitles, sanitize_filename,
+};
 use crate::nfo::{generate_nfo, write_nfo};
 use crate::processor::{FileAttributes, LinkMode, ProcessingMode, Template};
 
@@ -101,10 +103,7 @@ impl ProcessingContext {
         let location = template.render(&self.metadata);
 
         // Split by path separators and sanitize each component
-        let components: Vec<String> = location
-            .split('/')
-            .map(|s| sanitize_filename(s))
-            .collect();
+        let components: Vec<String> = location.split('/').map(|s| sanitize_filename(s)).collect();
 
         let mut dest_folder = self.config.success_folder.clone();
         for component in components {
@@ -187,10 +186,19 @@ impl ProcessingContext {
 
         // Move subtitles if enabled
         if self.config.move_subtitles {
-            let _ = move_subtitles(&self.movie_path, &dest_folder, &base_name, self.config.link_mode);
+            let _ = move_subtitles(
+                &self.movie_path,
+                &dest_folder,
+                &base_name,
+                self.config.link_mode,
+            );
         }
 
-        tracing::info!("Processing complete: {} -> {}", self.movie_path.display(), dest_path.display());
+        tracing::info!(
+            "Processing complete: {} -> {}",
+            self.movie_path.display(),
+            dest_path.display()
+        );
         Ok(())
     }
 
@@ -215,16 +223,27 @@ impl ProcessingContext {
 
         // Move subtitles if enabled
         if self.config.move_subtitles {
-            let _ = move_subtitles(&self.movie_path, &dest_folder, &base_name, self.config.link_mode);
+            let _ = move_subtitles(
+                &self.movie_path,
+                &dest_folder,
+                &base_name,
+                self.config.link_mode,
+            );
         }
 
-        tracing::info!("Organizing complete: {} -> {}", self.movie_path.display(), dest_path.display());
+        tracing::info!(
+            "Organizing complete: {} -> {}",
+            self.movie_path.display(),
+            dest_path.display()
+        );
         Ok(())
     }
 
     /// Mode 3: Analysis mode (scrape in-place, no file moving)
     fn execute_analysis_mode(&self) -> Result<()> {
-        let source_folder = self.movie_path.parent()
+        let source_folder = self
+            .movie_path
+            .parent()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine parent folder"))?;
         let base_name = self.get_destination_filename_base()?;
 
@@ -238,7 +257,10 @@ impl ProcessingContext {
         // TODO: Download images to source folder
         // This would call mdc-image crate to download cover, fanart, etc.
 
-        tracing::info!("Analysis complete (in-place): {}", self.movie_path.display());
+        tracing::info!(
+            "Analysis complete (in-place): {}",
+            self.movie_path.display()
+        );
         Ok(())
     }
 }

@@ -20,16 +20,25 @@ fn test_with_quality_markers() {
     assert_eq!(get_number("FHD-SSIS-001.mp4", None).unwrap(), "SSIS-001");
     assert_eq!(get_number("HD-ABP-123.mp4", None).unwrap(), "ABP-123");
     assert_eq!(get_number("SD_IPX-456.mp4", None).unwrap(), "IPX-456");
-    assert_eq!(get_number("1080p-STARS-789.mp4", None).unwrap(), "STARS-789");
+    assert_eq!(
+        get_number("1080p-STARS-789.mp4", None).unwrap(),
+        "STARS-789"
+    );
     assert_eq!(get_number("720p_MIDE-100.mp4", None).unwrap(), "MIDE-100");
     assert_eq!(get_number("4K-PRED-200.mp4", None).unwrap(), "PRED-200");
 }
 
 #[test]
 fn test_with_website_prefix() {
-    assert_eq!(get_number("javlibrary.com@SSIS-001.mp4", None).unwrap(), "SSIS-001");
+    assert_eq!(
+        get_number("javlibrary.com@SSIS-001.mp4", None).unwrap(),
+        "SSIS-001"
+    );
     // Note: www.javbus.cc@ is not properly removed in Python either
-    assert_eq!(get_number("www.javbus.cc@ABP-123.mp4", None).unwrap(), "WWW");
+    assert_eq!(
+        get_number("www.javbus.cc@ABP-123.mp4", None).unwrap(),
+        "WWW"
+    );
     assert_eq!(get_number("thz.me@IPX-456.mp4", None).unwrap(), "IPX-456");
 }
 
@@ -71,36 +80,69 @@ fn test_fc2_format() {
 fn test_tokyo_hot() {
     assert_eq!(get_number("Tokyo-Hot-n1234.mp4", None).unwrap(), "n1234");
     assert_eq!(get_number("tokyohot-k0567.avi", None).unwrap(), "k0567");
-    assert_eq!(get_number("tokyo_hot_red-123.mp4", None).unwrap(), "red-123");
+    assert_eq!(
+        get_number("tokyo_hot_red-123.mp4", None).unwrap(),
+        "red-123"
+    );
     assert_eq!(get_number("cz001.mp4", None).unwrap(), "cz001");
     assert_eq!(get_number("gedo0123.mp4", None).unwrap(), "gedo0123");
 }
 
 #[test]
 fn test_carib_caribpr() {
-    assert_eq!(get_number("carib-123456-789.mp4", None).unwrap(), "123456-789");
-    assert_eq!(get_number("caribbean-123456_789.mp4", None).unwrap(), "123456-789");
-    assert_eq!(get_number("caribpr-123456-789.mp4", None).unwrap(), "123456-789");
-    assert_eq!(get_number("caribbeancompr-123456_789.mp4", None).unwrap(), "123456-789");
+    assert_eq!(
+        get_number("carib-123456-789.mp4", None).unwrap(),
+        "123456-789"
+    );
+    assert_eq!(
+        get_number("caribbean-123456_789.mp4", None).unwrap(),
+        "123456-789"
+    );
+    assert_eq!(
+        get_number("caribpr-123456-789.mp4", None).unwrap(),
+        "123456-789"
+    );
+    assert_eq!(
+        get_number("caribbeancompr-123456_789.mp4", None).unwrap(),
+        "123456-789"
+    );
 }
 
 #[test]
 fn test_1pondo_pacopacomama_muramura() {
-    assert_eq!(get_number("1pondo-123456_789.mp4", None).unwrap(), "123456_789");
-    assert_eq!(get_number("paco-123456-789.mp4", None).unwrap(), "123456_789");
-    assert_eq!(get_number("muramura-123456_789.mp4", None).unwrap(), "123456_789");
+    assert_eq!(
+        get_number("1pondo-123456_789.mp4", None).unwrap(),
+        "123456_789"
+    );
+    assert_eq!(
+        get_number("paco-123456-789.mp4", None).unwrap(),
+        "123456_789"
+    );
+    assert_eq!(
+        get_number("muramura-123456_789.mp4", None).unwrap(),
+        "123456_789"
+    );
 }
 
 #[test]
 fn test_10musume() {
-    assert_eq!(get_number("10musume-123456_78.mp4", None).unwrap(), "123456_78");
+    assert_eq!(
+        get_number("10musume-123456_78.mp4", None).unwrap(),
+        "123456_78"
+    );
     assert_eq!(get_number("10mu-123456-78.mp4", None).unwrap(), "123456_78");
 }
 
 #[test]
 fn test_heydouga() {
-    assert_eq!(get_number("heydouga-4017-123.mp4", None).unwrap(), "heydouga-4017-123");
-    assert_eq!(get_number("heydouga_4030_456.avi", None).unwrap(), "heydouga-4030-456");
+    assert_eq!(
+        get_number("heydouga-4017-123.mp4", None).unwrap(),
+        "heydouga-4017-123"
+    );
+    assert_eq!(
+        get_number("heydouga_4030_456.avi", None).unwrap(),
+        "heydouga-4030-456"
+    );
 }
 
 #[test]
@@ -121,9 +163,15 @@ fn test_mdbk_mdtm() {
 
 #[test]
 fn test_western_formats() {
-    assert_eq!(get_number("x-art.18.05.15.mp4", None).unwrap(), "x-art.18.05.15");
+    assert_eq!(
+        get_number("x-art.18.05.15.mp4", None).unwrap(),
+        "x-art.18.05.15"
+    );
     // Python preserves the original case for x-art
-    assert_eq!(get_number("X-ART.18.05.15.avi", None).unwrap(), "X-ART.18.05.15");
+    assert_eq!(
+        get_number("X-ART.18.05.15.avi", None).unwrap(),
+        "X-ART.18.05.15"
+    );
 }
 
 #[test]
@@ -135,17 +183,29 @@ fn test_xxx_av() {
 #[test]
 fn test_complex_filenames() {
     // Multiple markers combined
-    assert_eq!(get_number("FHD-SSIS-001-C-CD1.mp4", None).unwrap(), "SSIS-001");
-    assert_eq!(get_number("1080p_ABP-123-UC-cd2.mp4", None).unwrap(), "ABP-123");
+    assert_eq!(
+        get_number("FHD-SSIS-001-C-CD1.mp4", None).unwrap(),
+        "SSIS-001"
+    );
+    assert_eq!(
+        get_number("1080p_ABP-123-UC-cd2.mp4", None).unwrap(),
+        "ABP-123"
+    );
     // Note: Python doesn't remove HD- in this case
-    assert_eq!(get_number("javbus.com@HD-IPX-456-U.mp4", None).unwrap(), "HD-IPX-456");
+    assert_eq!(
+        get_number("javbus.com@HD-IPX-456-U.mp4", None).unwrap(),
+        "HD-IPX-456"
+    );
 }
 
 #[test]
 fn test_with_brackets() {
     // NEW BEHAVIOR: Brackets are now stripped by clean_filename(), allowing correct extraction
     // [ThZu.Cc] is removed, so SSIS-001 is correctly extracted (not THZU)
-    assert_eq!(get_number("[ThZu.Cc]SSIS-001.mp4", None).unwrap(), "SSIS-001");
+    assert_eq!(
+        get_number("[ThZu.Cc]SSIS-001.mp4", None).unwrap(),
+        "SSIS-001"
+    );
     // Both [JAV] and [HD] are stripped, ABP-123 is extracted
     assert_eq!(get_number("[JAV]ABP-123[HD].mp4", None).unwrap(), "ABP-123");
 }
@@ -225,7 +285,13 @@ fn test_edge_cases() {
     assert_eq!(get_number("ABP-0001.mp4", None).unwrap(), "ABP-0001");
 
     // Very long numbers
-    assert_eq!(get_number("FC2-PPV-1234567890.mp4", None).unwrap_or_default().len() > 0, true);
+    assert_eq!(
+        get_number("FC2-PPV-1234567890.mp4", None)
+            .unwrap_or_default()
+            .len()
+            > 0,
+        true
+    );
 
     // Mixed case
     assert_eq!(get_number("ssis-001.mp4", None).unwrap(), "SSIS-001");
@@ -235,17 +301,11 @@ fn test_edge_cases() {
 #[test]
 fn test_real_world_messy_filenames() {
     // Real-world examples with lots of junk
-    let result1 = get_number(
-        "[ThZu.Cc]FHD-SSIS-001-C-CD1-uncensored.mp4",
-        None
-    ).unwrap();
+    let result1 = get_number("[ThZu.Cc]FHD-SSIS-001-C-CD1-uncensored.mp4", None).unwrap();
     // Should extract either THZU or SSIS-001
     assert!(result1.contains("THZU") || result1.contains("SSIS") || result1.contains("001"));
 
-    let result2 = get_number(
-        "javlibrary.com@1080p_ABP-123_HD_x264.mp4",
-        None
-    ).unwrap();
+    let result2 = get_number("javlibrary.com@1080p_ABP-123_HD_x264.mp4", None).unwrap();
     assert!(result2.contains("ABP") || result2.contains("123"));
 }
 

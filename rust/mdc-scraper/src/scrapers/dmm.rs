@@ -62,10 +62,9 @@ impl DmmScraper {
             for row in html.select(&row_selector) {
                 if let Ok(label_sel) = Selector::parse("td.nw") {
                     if let Ok(value_sel) = Selector::parse("td:not(.nw)") {
-                        if let (Some(label), Some(value)) = (
-                            row.select(&label_sel).next(),
-                            row.select(&value_sel).next(),
-                        ) {
+                        if let (Some(label), Some(value)) =
+                            (row.select(&label_sel).next(), row.select(&value_sel).next())
+                        {
                             let key = label.text().collect::<String>().trim().to_string();
                             let val = value.text().collect::<String>().trim().to_string();
                             if !key.is_empty() && !val.is_empty() {
@@ -213,11 +212,7 @@ impl Scraper for DmmScraper {
         // Cover image: <img id="sample-video"> or <div class="img">
         let cover = self.select_attr_by_exprs(
             html,
-            &[
-                "div.img img",
-                "img#sample-video",
-                "div.preview-images img",
-            ],
+            &["div.img img", "img#sample-video", "div.preview-images img"],
             "src",
         );
         if !cover.is_empty() {
@@ -271,11 +266,7 @@ impl Scraper for DmmScraper {
         // Outline/Description: Multiple possible locations
         let outline = self.select_text_by_exprs(
             html,
-            &[
-                "div.mg-b20.lh4 p",
-                "p.mg-b20",
-                "div.txt.txt-product",
-            ],
+            &["div.mg-b20.lh4 p", "p.mg-b20", "div.txt.txt-product"],
         );
         if !outline.is_empty() {
             metadata.outline = self.clean_text(&outline);
@@ -310,10 +301,16 @@ mod tests {
         let scraper = DmmScraper::new();
 
         let url1 = "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=ssis00123/";
-        assert_eq!(scraper.extract_cid_from_url(url1), Some("ssis00123".to_string()));
+        assert_eq!(
+            scraper.extract_cid_from_url(url1),
+            Some("ssis00123".to_string())
+        );
 
         let url2 = "https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=abp00001/";
-        assert_eq!(scraper.extract_cid_from_url(url2), Some("abp00001".to_string()));
+        assert_eq!(
+            scraper.extract_cid_from_url(url2),
+            Some("abp00001".to_string())
+        );
 
         let url3 = "https://www.dmm.co.jp/search/";
         assert_eq!(scraper.extract_cid_from_url(url3), None);
@@ -358,7 +355,10 @@ mod tests {
 
         let html = Html::parse_document(html_content);
         let metadata = scraper
-            .parse_metadata(&html, "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=ssis00123/")
+            .parse_metadata(
+                &html,
+                "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=ssis00123/",
+            )
             .unwrap();
 
         assert_eq!(metadata.title, "テストJAVムービー");
@@ -380,10 +380,7 @@ mod tests {
     fn test_clean_text() {
         let scraper = DmmScraper::new();
         assert_eq!(scraper.clean_text("  Test   Movie  "), "Test Movie");
-        assert_eq!(
-            scraper.clean_text("Test\n\nMovie\n"),
-            "Test Movie"
-        );
+        assert_eq!(scraper.clean_text("Test\n\nMovie\n"), "Test Movie");
     }
 
     #[test]

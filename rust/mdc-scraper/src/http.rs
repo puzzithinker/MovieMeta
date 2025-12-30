@@ -8,10 +8,10 @@
 //! - CloudFlare bypass via Python subprocess
 
 use anyhow::{anyhow, Result};
+use reqwest::header::{HeaderMap, HeaderValue, COOKIE, USER_AGENT};
 use reqwest::{Client, Proxy, Response, StatusCode};
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, COOKIE};
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Default user agent (Chrome 100)
 pub const DEFAULT_USER_AGENT: &str =
@@ -109,18 +109,12 @@ impl HttpClient {
 
         // Build default headers
         let mut headers = HeaderMap::new();
-        headers.insert(
-            USER_AGENT,
-            HeaderValue::from_str(&config.user_agent)?,
-        );
+        headers.insert(USER_AGENT, HeaderValue::from_str(&config.user_agent)?);
 
         // Add custom headers
         for (key, value) in &config.headers {
             let header_name: reqwest::header::HeaderName = key.parse()?;
-            headers.insert(
-                header_name,
-                HeaderValue::from_str(value)?,
-            );
+            headers.insert(header_name, HeaderValue::from_str(value)?);
         }
 
         client_builder = client_builder.default_headers(headers);
@@ -138,6 +132,30 @@ impl HttpClient {
     /// Perform a GET request and return the response as text
     pub async fn get_text(&self, url: &str) -> Result<String> {
         let response = self.get(url).await?;
+        let text = response.text().await?;
+        Ok(text)
+    }
+
+    /// Perform a GET request with custom Cookie header and return the response as text
+    ///
+    /// # Arguments
+    /// * `url` - URL to fetch
+    /// * `cookie_header` - Cookie header value (e.g., "name1=value1; name2=value2")
+    ///
+    /// # Returns
+    /// * `Result<String>` - Response body as text
+    pub async fn get_text_with_cookies(&self, url: &str, cookie_header: &str) -> Result<String> {
+        let response = self
+            .client
+            .get(url)
+            .header(COOKIE, HeaderValue::from_str(cookie_header)?)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow!("HTTP {}: {}", response.status(), url));
+        }
+
         let text = response.text().await?;
         Ok(text)
     }
@@ -180,11 +198,7 @@ impl HttpClient {
                                 retries + 1
                             );
                         }
-                        last_error = Some(anyhow!(
-                            "HTTP {}: {}",
-                            response.status(),
-                            url
-                        ));
+                        last_error = Some(anyhow!("HTTP {}: {}", response.status(), url));
                     } else {
                         return Ok(response);
                     }
@@ -237,11 +251,7 @@ impl HttpClient {
                                 retries + 1
                             );
                         }
-                        last_error = Some(anyhow!(
-                            "HTTP {}: {}",
-                            response.status(),
-                            url
-                        ));
+                        last_error = Some(anyhow!("HTTP {}: {}", response.status(), url));
                     } else {
                         return Ok(response);
                     }
@@ -376,13 +386,17 @@ impl HttpClientBuilder {
 
     /// Add a custom header
     pub fn header(mut self, key: &str, value: &str) -> Self {
-        self.config.headers.insert(key.to_string(), value.to_string());
+        self.config
+            .headers
+            .insert(key.to_string(), value.to_string());
         self
     }
 
     /// Add a cookie
     pub fn cookie(mut self, key: &str, value: &str) -> Self {
-        self.config.cookies.insert(key.to_string(), value.to_string());
+        self.config
+            .cookies
+            .insert(key.to_string(), value.to_string());
         self
     }
 

@@ -19,11 +19,17 @@ pub fn generate_nfo(metadata: &serde_json::Value, movie_id: &str) -> Result<Stri
 
     // Original title (same as title for now)
     if let Some(title) = metadata.get("title").and_then(|v| v.as_str()) {
-        nfo.push_str(&format!("  <originaltitle>{}</originaltitle>\n", xml_escape(title)));
+        nfo.push_str(&format!(
+            "  <originaltitle>{}</originaltitle>\n",
+            xml_escape(title)
+        ));
     }
 
     // Sort title (number for proper sorting)
-    nfo.push_str(&format!("  <sorttitle>{}</sorttitle>\n", xml_escape(movie_id)));
+    nfo.push_str(&format!(
+        "  <sorttitle>{}</sorttitle>\n",
+        xml_escape(movie_id)
+    ));
 
     // User rating
     if let Some(rating) = metadata.get("userrating").and_then(|v| v.as_f64()) {
@@ -51,8 +57,14 @@ pub fn generate_nfo(metadata: &serde_json::Value, movie_id: &str) -> Result<Stri
 
     // Release date
     if let Some(release) = metadata.get("release").and_then(|v| v.as_str()) {
-        nfo.push_str(&format!("  <releasedate>{}</releasedate>\n", xml_escape(release)));
-        nfo.push_str(&format!("  <premiered>{}</premiered>\n", xml_escape(release)));
+        nfo.push_str(&format!(
+            "  <releasedate>{}</releasedate>\n",
+            xml_escape(release)
+        ));
+        nfo.push_str(&format!(
+            "  <premiered>{}</premiered>\n",
+            xml_escape(release)
+        ));
     }
 
     // Year
@@ -63,7 +75,10 @@ pub fn generate_nfo(metadata: &serde_json::Value, movie_id: &str) -> Result<Stri
     // Director
     if let Some(director) = metadata.get("director").and_then(|v| v.as_str()) {
         if !director.is_empty() {
-            nfo.push_str(&format!("  <director>{}</director>\n", xml_escape(director)));
+            nfo.push_str(&format!(
+                "  <director>{}</director>\n",
+                xml_escape(director)
+            ));
         }
     }
 
@@ -114,7 +129,10 @@ pub fn generate_nfo(metadata: &serde_json::Value, movie_id: &str) -> Result<Stri
                     // Add photo if available
                     if let Some(photos) = actor_photos {
                         if let Some(photo_url) = photos.get(actor_name).and_then(|v| v.as_str()) {
-                            nfo.push_str(&format!("    <thumb>{}</thumb>\n", xml_escape(photo_url)));
+                            nfo.push_str(&format!(
+                                "    <thumb>{}</thumb>\n",
+                                xml_escape(photo_url)
+                            ));
                         }
                     }
 

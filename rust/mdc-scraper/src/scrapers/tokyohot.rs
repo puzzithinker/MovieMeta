@@ -174,10 +174,8 @@ impl Scraper for TokyohotScraper {
         }
 
         // Actresses: <a class="actress"> or in cast list
-        metadata.actor = self.select_all_text(
-            html,
-            "a.actress, div.cast a, dl.cast dd a, span.actress a",
-        );
+        metadata.actor =
+            self.select_all_text(html, "a.actress, div.cast a, dl.cast dd a, span.actress a");
         metadata.actor.retain(|a| !a.is_empty() && a.len() > 1);
 
         // Genres/Tags: <a class="genre"> or category links
@@ -275,9 +273,7 @@ mod tests {
         assert_eq!(metadata.series, "Test Series");
         // Cover can be either package or og:image
         assert!(!metadata.cover.is_empty());
-        assert!(
-            metadata.cover.contains("package.jpg") || metadata.cover.contains("th-cover.jpg")
-        );
+        assert!(metadata.cover.contains("package.jpg") || metadata.cover.contains("th-cover.jpg"));
         assert_eq!(metadata.actor.len(), 2);
         assert!(metadata.tag.len() >= 3); // 2 genres + "Uncensored"
         assert!(metadata.tag.contains(&"Uncensored".to_string()));

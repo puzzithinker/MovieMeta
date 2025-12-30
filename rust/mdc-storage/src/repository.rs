@@ -77,24 +77,21 @@ impl JobRepository {
 
     /// Get job by ID
     pub async fn get_job(&self, id: &str) -> Result<Option<ProcessingJob>> {
-        let job = sqlx::query_as::<_, ProcessingJob>(
-            "SELECT * FROM processing_jobs WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let job = sqlx::query_as::<_, ProcessingJob>("SELECT * FROM processing_jobs WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(job)
     }
 
     /// Get job by file path
     pub async fn get_job_by_path(&self, file_path: &str) -> Result<Option<ProcessingJob>> {
-        let job = sqlx::query_as::<_, ProcessingJob>(
-            "SELECT * FROM processing_jobs WHERE file_path = ?"
-        )
-        .bind(file_path)
-        .fetch_optional(&self.pool)
-        .await?;
+        let job =
+            sqlx::query_as::<_, ProcessingJob>("SELECT * FROM processing_jobs WHERE file_path = ?")
+                .bind(file_path)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(job)
     }
@@ -132,13 +129,11 @@ impl JobRepository {
 
     /// Update job metadata
     pub async fn update_job_metadata(&self, id: &str, metadata_json: String) -> Result<()> {
-        sqlx::query(
-            "UPDATE processing_jobs SET metadata_json = ? WHERE id = ?"
-        )
-        .bind(metadata_json)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE processing_jobs SET metadata_json = ? WHERE id = ?")
+            .bind(metadata_json)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -147,14 +142,14 @@ impl JobRepository {
     pub async fn list_jobs(&self, status: Option<JobStatus>) -> Result<Vec<ProcessingJob>> {
         let jobs = if let Some(status) = status {
             sqlx::query_as::<_, ProcessingJob>(
-                "SELECT * FROM processing_jobs WHERE status = ? ORDER BY created_at DESC"
+                "SELECT * FROM processing_jobs WHERE status = ? ORDER BY created_at DESC",
             )
             .bind(status.to_string())
             .fetch_all(&self.pool)
             .await?
         } else {
             sqlx::query_as::<_, ProcessingJob>(
-                "SELECT * FROM processing_jobs ORDER BY created_at DESC"
+                "SELECT * FROM processing_jobs ORDER BY created_at DESC",
             )
             .fetch_all(&self.pool)
             .await?
@@ -239,11 +234,10 @@ impl JobRepository {
 
     /// Get all failed files
     pub async fn list_failed_files(&self) -> Result<Vec<FailedFile>> {
-        let files = sqlx::query_as::<_, FailedFile>(
-            "SELECT * FROM failed_files ORDER BY failed_at DESC"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let files =
+            sqlx::query_as::<_, FailedFile>("SELECT * FROM failed_files ORDER BY failed_at DESC")
+                .fetch_all(&self.pool)
+                .await?;
 
         Ok(files)
     }
@@ -394,7 +388,10 @@ mod tests {
     async fn test_failed_files() {
         let (repo, _temp) = setup_test_repo().await;
 
-        let failed = FailedFile::new("/test/failed.mp4".to_string(), Some("No metadata".to_string()));
+        let failed = FailedFile::new(
+            "/test/failed.mp4".to_string(),
+            Some("No metadata".to_string()),
+        );
 
         repo.add_failed_file(&failed).await.unwrap();
 

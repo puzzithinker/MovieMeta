@@ -17,9 +17,7 @@ pub async fn health() -> &'static str {
 }
 
 /// Create a new processing job
-pub async fn create_job(
-    Json(request): Json<CreateJobRequest>,
-) -> ApiResult<Json<JobResponse>> {
+pub async fn create_job(Json(request): Json<CreateJobRequest>) -> ApiResult<Json<JobResponse>> {
     // TODO: Implement job creation with mdc-core
     // For now, return a mock response
 
@@ -51,9 +49,7 @@ pub struct ListJobsQuery {
     offset: Option<usize>,
 }
 
-pub async fn list_jobs(
-    Query(_query): Query<ListJobsQuery>,
-) -> ApiResult<Json<JobListResponse>> {
+pub async fn list_jobs(Query(_query): Query<ListJobsQuery>) -> ApiResult<Json<JobListResponse>> {
     // TODO: Implement job listing from mdc-storage
     // For now, return empty list
 
@@ -64,9 +60,7 @@ pub async fn list_jobs(
 }
 
 /// Get job by ID
-pub async fn get_job(
-    Path(job_id): Path<String>,
-) -> ApiResult<Json<JobResponse>> {
+pub async fn get_job(Path(job_id): Path<String>) -> ApiResult<Json<JobResponse>> {
     // TODO: Implement job retrieval from mdc-storage
     // For now, return not found
 
@@ -74,9 +68,7 @@ pub async fn get_job(
 }
 
 /// Cancel a job
-pub async fn cancel_job(
-    Path(job_id): Path<String>,
-) -> ApiResult<Json<JobResponse>> {
+pub async fn cancel_job(Path(job_id): Path<String>) -> ApiResult<Json<JobResponse>> {
     // TODO: Implement job cancellation
     // For now, return not found
 
@@ -84,9 +76,7 @@ pub async fn cancel_job(
 }
 
 /// Retry a failed job
-pub async fn retry_job(
-    Path(job_id): Path<String>,
-) -> ApiResult<Json<JobResponse>> {
+pub async fn retry_job(Path(job_id): Path<String>) -> ApiResult<Json<JobResponse>> {
     // TODO: Implement job retry
     // For now, return not found
 
@@ -94,19 +84,13 @@ pub async fn retry_job(
 }
 
 /// Scan folder for movie files
-pub async fn scan_folder(
-    Json(request): Json<ScanRequest>,
-) -> ApiResult<Json<ScanResponse>> {
+pub async fn scan_folder(Json(request): Json<ScanRequest>) -> ApiResult<Json<ScanResponse>> {
     // TODO: Implement folder scanning with mdc-core scanner
     // For now, return empty results
 
     use mdc_core::scanner;
 
-    let media_types: Vec<&str> = request
-        .media_types
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
+    let media_types: Vec<&str> = request.media_types.iter().map(|s| s.as_str()).collect();
 
     let files = scanner::scan_directory(&request.path, &media_types)
         .await
@@ -134,9 +118,7 @@ pub async fn get_config() -> ApiResult<Json<ConfigResponse>> {
 }
 
 /// Update configuration
-pub async fn update_config(
-    Json(config): Json<ConfigResponse>,
-) -> ApiResult<Json<ConfigResponse>> {
+pub async fn update_config(Json(config): Json<ConfigResponse>) -> ApiResult<Json<ConfigResponse>> {
     // TODO: Save to mdc-storage config
     // For now, just return the config back
 

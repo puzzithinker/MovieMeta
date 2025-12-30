@@ -2,8 +2,8 @@
 //!
 //! REST API and WebSocket server for MDC
 
-use std::net::SocketAddr;
 use clap::Parser;
+use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[clap(name = "mdc-server")]

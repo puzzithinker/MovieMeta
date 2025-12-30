@@ -104,6 +104,18 @@ impl ScraperClient {
 
     /// Perform a GET request
     pub async fn get(&self, url: &str) -> Result<String> {
+        self.get_with_cookies(url, None).await
+    }
+
+    /// Perform a GET request with optional Cookie header
+    ///
+    /// # Arguments
+    /// * `url` - URL to fetch
+    /// * `cookie_header` - Optional Cookie header value (e.g., "name1=value1; name2=value2")
+    ///
+    /// # Returns
+    /// * `Result<String>` - Response body as text
+    pub async fn get_with_cookies(&self, url: &str, cookie_header: Option<&str>) -> Result<String> {
         match self.backend {
             HttpBackend::Reqwest => {
                 let client = self
@@ -111,7 +123,15 @@ impl ScraperClient {
                     .as_ref()
                     .ok_or_else(|| anyhow!("Reqwest client not initialized"))?;
 
-                match client.get_text(url).await {
+                // If cookie header is provided, use method with cookies
+                let result = if let Some(cookies) = cookie_header {
+                    client.get_text_with_cookies(url, cookies).await
+                } else {
+                    // Use standard get_text method
+                    client.get_text(url).await
+                };
+
+                match result {
                     Ok(text) => Ok(text),
                     Err(e) => {
                         if self.auto_fallback && self.should_fallback(&e) {

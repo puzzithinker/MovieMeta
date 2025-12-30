@@ -105,7 +105,8 @@ fn file_modification_days(path: &Path) -> Result<i32> {
     let mtime = metadata.modified()?;
     let now = SystemTime::now();
 
-    let duration = now.duration_since(mtime)
+    let duration = now
+        .duration_since(mtime)
         .unwrap_or_else(|_| std::time::Duration::from_secs(0));
 
     let days = (duration.as_secs() / (24 * 60 * 60)) as i32;
@@ -163,7 +164,7 @@ fn has_hardlinks(path: &Path) -> bool {
     #[cfg(windows)]
     {
         let _ = path; // Explicitly mark as unused
-        // Windows doesn't easily expose nlink count
+                      // Windows doesn't easily expose nlink count
         false
     }
 }
@@ -186,7 +187,10 @@ impl Scanner {
 
         // Validate source folder
         if !self.config.source_folder.is_dir() {
-            return Err(anyhow!("Source folder not found: {:?}", self.config.source_folder));
+            return Err(anyhow!(
+                "Source folder not found: {:?}",
+                self.config.source_folder
+            ));
         }
 
         // Load failed list if enabled
@@ -213,7 +217,9 @@ impl Scanner {
         let trailer_regex = Regex::new(r"(?i)-trailer\.").unwrap();
 
         // Escape folder set
-        let escape_set: HashSet<String> = self.config.escape_folders
+        let escape_set: HashSet<String> = self
+            .config
+            .escape_folders
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -247,7 +253,8 @@ impl Scanner {
             }
 
             // Check file extension
-            let ext = path.extension()
+            let ext = path
+                .extension()
                 .and_then(|e| e.to_str())
                 .map(|e| format!(".{}", e.to_lowercase()))
                 .unwrap_or_default();
@@ -307,7 +314,8 @@ impl Scanner {
                         _ => {}
                     }
                 } else if self.config.debug {
-                    tracing::info!("Metadata {}.nfo not found for '{}'",
+                    tracing::info!(
+                        "Metadata {}.nfo not found for '{}'",
                         path.file_stem().unwrap_or_default().to_string_lossy(),
                         path_str
                     );
@@ -320,12 +328,12 @@ impl Scanner {
         stats.total_files = results.len();
 
         // Additional NFO checking for link modes
-        if self.config.nfo_skip_days > 0
-            && self.config.link_mode > 0
-            && self.config.main_mode != 3
+        if self.config.nfo_skip_days > 0 && self.config.link_mode > 0 && self.config.main_mode != 3
         {
             if let Some(ref success_folder) = self.config.success_folder {
-                results = self.filter_by_success_nfo(results, success_folder, &mut stats).await?;
+                results = self
+                    .filter_by_success_nfo(results, success_folder, &mut stats)
+                    .await?;
             }
         }
 
@@ -373,7 +381,8 @@ impl Scanner {
         // Filter out files whose numbers are in skip_numbers
         let mut filtered = Vec::new();
         for file_path in results {
-            let should_skip = if let Some(filename) = file_path.file_name().and_then(|f| f.to_str()) {
+            let should_skip = if let Some(filename) = file_path.file_name().and_then(|f| f.to_str())
+            {
                 if let Ok(number) = get_number(filename, None) {
                     skip_numbers.contains(&number.to_lowercase())
                 } else {
@@ -406,13 +415,16 @@ impl Scanner {
 /// This is a simplified interface that scans a directory for video files
 /// matching the given media types, without advanced features like NFO checking.
 pub async fn scan_directory(path: &Path, media_types: &[&str]) -> Result<Vec<PathBuf>> {
-    let media_types_owned: Vec<String> = media_types.iter().map(|s| {
-        if s.starts_with('.') {
-            s.to_string()
-        } else {
-            format!(".{}", s)
-        }
-    }).collect();
+    let media_types_owned: Vec<String> = media_types
+        .iter()
+        .map(|s| {
+            if s.starts_with('.') {
+                s.to_string()
+            } else {
+                format!(".{}", s)
+            }
+        })
+        .collect();
 
     let config = ScannerConfig {
         source_folder: path.to_path_buf(),

@@ -141,7 +141,11 @@ impl FaceDetector {
         ];
 
         if self.debug {
-            tracing::debug!("Face detection command: {} {}", self.python_path, args.join(" "));
+            tracing::debug!(
+                "Face detection command: {} {}",
+                self.python_path,
+                args.join(" ")
+            );
         }
 
         // Execute Python script
@@ -181,9 +185,7 @@ impl FaceDetector {
     /// Check if face detection is available
     pub fn is_available(&self) -> bool {
         // Check if Python is available
-        let python_check = Command::new(&self.python_path)
-            .arg("--version")
-            .output();
+        let python_check = Command::new(&self.python_path).arg("--version").output();
 
         if python_check.is_err() {
             return false;

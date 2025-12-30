@@ -87,7 +87,10 @@ impl ProgressBroadcaster {
     }
 
     /// Send a progress message to all subscribers
-    pub fn send(&self, message: ProgressMessage) -> Result<usize, broadcast::error::SendError<ProgressMessage>> {
+    pub fn send(
+        &self,
+        message: ProgressMessage,
+    ) -> Result<usize, broadcast::error::SendError<ProgressMessage>> {
         self.tx.send(message)
     }
 

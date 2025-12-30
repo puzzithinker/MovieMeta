@@ -25,17 +25,18 @@ pub fn init() {
 ///
 /// * `level` - Log level: "trace", "debug", "info", "warn", or "error"
 pub fn init_with_level(level: &str) {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(fmt::layer()
-            .with_target(true)
-            .with_thread_ids(false)
-            .with_thread_names(false)
-            .with_file(false)
-            .with_line_number(false))
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .with_thread_ids(false)
+                .with_thread_names(false)
+                .with_file(false)
+                .with_line_number(false),
+        )
         .init();
 }
 

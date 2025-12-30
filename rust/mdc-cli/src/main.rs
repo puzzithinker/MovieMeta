@@ -14,21 +14,24 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use mdc_core::{
-    logging, BatchProcessor, DualId, LinkMode, ProcessingMode, ProcessorConfig, ProcessingStats,
-    scanner,
+    logging, scanner, BatchProcessor, DualId, LinkMode, ProcessingMode, ProcessingStats,
+    ProcessorConfig,
+};
+use mdc_scraper::scrapers::{
+    AvmooScraper, DmmScraper, Fc2Scraper, ImdbScraper, Jav321Scraper, JavbusScraper,
+    JavdbScraper, JavlibraryScraper, MgstageScraper, R18DevScraper, TmdbScraper,
+    TokyohotScraper,
 };
 use mdc_scraper::{ScraperClient, ScraperConfig, ScraperRegistry};
-use mdc_scraper::scrapers::{
-    AvmooScraper, DmmScraper, Fc2Scraper, ImdbScraper, JavbusScraper, JavlibraryScraper,
-    R18DevScraper, TmdbScraper, TokyohotScraper,
-};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Filter results to find files with number parsing errors
-fn filter_invalid_code_files(results: &[mdc_core::ProcessingResult]) -> Vec<&mdc_core::ProcessingResult> {
+fn filter_invalid_code_files(
+    results: &[mdc_core::ProcessingResult],
+) -> Vec<&mdc_core::ProcessingResult> {
     results
         .iter()
         .filter(|r| {
@@ -66,7 +69,11 @@ fn delete_files(
     for result in files {
         if dry_run {
             let action = if permanent { "delete" } else { "move to trash" };
-            println!("  [DRY RUN] Would {}: {}", action, result.file_path.display());
+            println!(
+                "  [DRY RUN] Would {}: {}",
+                action,
+                result.file_path.display()
+            );
             deletion_results.push(DeletionResult {
                 file_path: result.file_path.clone(),
                 success: true,
@@ -84,7 +91,11 @@ fn delete_files(
                     });
                 }
                 Err(e) => {
-                    eprintln!("  ✗ Failed to delete: {} - {}", result.file_path.display(), e);
+                    eprintln!(
+                        "  ✗ Failed to delete: {} - {}",
+                        result.file_path.display(),
+                        e
+                    );
                     deletion_results.push(DeletionResult {
                         file_path: result.file_path.clone(),
                         success: false,
@@ -94,7 +105,8 @@ fn delete_files(
             }
         } else {
             // Move to trash (default)
-            let file_name = result.file_path
+            let file_name = result
+                .file_path
                 .file_name()
                 .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
             let dest = trash_dir.join(file_name);
@@ -132,13 +144,22 @@ fn confirm_deletion() -> Result<bool> {
 }
 
 /// Print deletion summary
-fn print_deletion_summary(results: &[DeletionResult], dry_run: bool, permanent: bool, trash_dir: &Path) {
+fn print_deletion_summary(
+    results: &[DeletionResult],
+    dry_run: bool,
+    permanent: bool,
+    trash_dir: &Path,
+) {
     let successful = results.iter().filter(|r| r.success).count();
     let failed = results.len() - successful;
 
     println!("\n{}", "=".repeat(60));
     if dry_run {
-        let action = if permanent { "deleted" } else { "moved to trash" };
+        let action = if permanent {
+            "deleted"
+        } else {
+            "moved to trash"
+        };
         println!("Dry Run Summary:");
         println!("  {} files would be {}", successful, action);
     } else {
@@ -322,7 +343,8 @@ async fn main() -> Result<()> {
             source_path.clone()
         } else {
             // For single file, use parent directory
-            source_path.parent()
+            source_path
+                .parent()
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| PathBuf::from("./output"))
         }
@@ -367,19 +389,43 @@ async fn main() -> Result<()> {
 
     // Create scraper registry with TMDB and IMDB
     let scraper_client = ScraperClient::new()?;
-    let scraper_config = ScraperConfig::new(scraper_client).debug(cli.debug);
+
+    // Try to load cookies from config file (optional)
+    let cookies = if let Ok(config) = mdc_storage::Config::load(None) {
+        let cookies = config.cookies();
+        if !cookies.is_empty() {
+            println!(
+                "Loaded cookies for domains: {}",
+                cookies
+                    .keys()
+                    .map(|k| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        cookies
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let scraper_config = ScraperConfig::new(scraper_client)
+        .debug(cli.debug)
+        .cookies(cookies);
 
     let mut registry = ScraperRegistry::new();
 
     // Register JAV-specific scrapers (in priority order)
     // TIER 1: Official/High Quality Sources
-    registry.register(Arc::new(DmmScraper::new()));       // Official FANZA store
-    registry.register(Arc::new(R18DevScraper::new()));    // R18.com API (English)
+    registry.register(Arc::new(DmmScraper::new())); // Official FANZA store
+    registry.register(Arc::new(R18DevScraper::new())); // R18.com API (English)
+    registry.register(Arc::new(JavdbScraper::new())); // Modern aggregator (EN/ZH)
+    registry.register(Arc::new(MgstageScraper::new())); // MGS/Prestige official studio
 
     // TIER 2: Comprehensive Aggregators
     registry.register(Arc::new(JavlibraryScraper::new()));
     registry.register(Arc::new(JavbusScraper::new()));
     registry.register(Arc::new(AvmooScraper::new()));
+    registry.register(Arc::new(Jav321Scraper::new())); // Fallback aggregator
 
     // TIER 3: Specialized Sources
     registry.register(Arc::new(Fc2Scraper::new()));
@@ -403,16 +449,25 @@ async fn main() -> Result<()> {
             // Use search_with_ids() to pass both display and content IDs
             // Each scraper will receive the ID format it prefers
             match registry_clone
-                .search_with_ids(&dual_id.display, &dual_id.content, None, &scraper_config_clone)
+                .search_with_ids(
+                    &dual_id.display,
+                    &dual_id.content,
+                    None,
+                    &scraper_config_clone,
+                )
                 .await?
             {
                 Some(metadata) => {
                     // Convert MovieMetadata to JSON
-                    let json = serde_json::to_value(&metadata)
-                        .context("Failed to serialize metadata")?;
+                    let json =
+                        serde_json::to_value(&metadata).context("Failed to serialize metadata")?;
                     Ok(json)
                 }
-                None => Err(anyhow::anyhow!("No metadata found for {}/{}", dual_id.display, dual_id.content)),
+                None => Err(anyhow::anyhow!(
+                    "No metadata found for {}/{}",
+                    dual_id.display,
+                    dual_id.content
+                )),
             }
         }
     });
@@ -423,7 +478,11 @@ async fn main() -> Result<()> {
     });
 
     // Process batch
-    println!("\nProcessing {} files with {} concurrent tasks...", files.len(), cli.concurrent);
+    println!(
+        "\nProcessing {} files with {} concurrent tasks...",
+        files.len(),
+        cli.concurrent
+    );
     println!("Mode: {:?}, Link: {:?}\n", processing_mode, link_mode);
 
     let (results, stats) = batch_processor
@@ -438,14 +497,21 @@ async fn main() -> Result<()> {
             println!("\n✓ No files with invalid video codes found.");
         } else {
             // Determine trash directory (in the source folder)
-            let trash_dir = source_path.parent().unwrap_or(&source_path).join("invalid_files");
+            let trash_dir = source_path
+                .parent()
+                .unwrap_or(&source_path)
+                .join("invalid_files");
 
             println!("\n{}", "=".repeat(60));
-            println!("Found {} files with invalid video codes:", invalid_files.len());
+            println!(
+                "Found {} files with invalid video codes:",
+                invalid_files.len()
+            );
             println!("{}", "=".repeat(60));
 
             for result in &invalid_files {
-                println!("  {} - {}",
+                println!(
+                    "  {} - {}",
                     result.file_path.display(),
                     result.error.as_deref().unwrap_or("Unknown error")
                 );
@@ -461,15 +527,22 @@ async fn main() -> Result<()> {
             } else if cli.dry_run {
                 true // Dry run doesn't need confirmation
             } else {
-                print!("\n{} these files? (y/N): ",
-                    if cli.permanent { "Permanently delete" } else { "Move to trash" });
+                print!(
+                    "\n{} these files? (y/N): ",
+                    if cli.permanent {
+                        "Permanently delete"
+                    } else {
+                        "Move to trash"
+                    }
+                );
                 use std::io::{self, Write};
                 io::stdout().flush()?;
                 confirm_deletion()?
             };
 
             if should_delete {
-                let deletion_results = delete_files(&invalid_files, cli.dry_run, cli.permanent, &trash_dir)?;
+                let deletion_results =
+                    delete_files(&invalid_files, cli.dry_run, cli.permanent, &trash_dir)?;
                 print_deletion_summary(&deletion_results, cli.dry_run, cli.permanent, &trash_dir);
             } else {
                 println!("Operation cancelled.");
@@ -519,7 +592,8 @@ fn print_results(results: &[mdc_core::ProcessingResult], stats: &ProcessingStats
         println!("Failed Files:");
         println!("{}", "-".repeat(60));
         for result in failed {
-            println!("  {} - {}",
+            println!(
+                "  {} - {}",
                 result.file_path.display(),
                 result.error.as_deref().unwrap_or("Unknown error")
             );

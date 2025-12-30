@@ -82,7 +82,9 @@ impl ScraperRegistry {
         // Determine sources to try
         let sources_to_try = if let Some(ref url) = config.specified_url {
             // If specific URL provided, try to infer source or use all
-            vec![self.infer_source_from_url(url).unwrap_or_else(|| "unknown".to_string())]
+            vec![self
+                .infer_source_from_url(url)
+                .unwrap_or_else(|| "unknown".to_string())]
         } else if let Some(sources_list) = sources {
             self.validate_sources(sources_list)
         } else {
@@ -152,7 +154,11 @@ impl ScraperRegistry {
 
         // No valid metadata found
         if config.debug {
-            tracing::warn!("No metadata found for [{}]/[{}] in any source", display_id, content_id);
+            tracing::warn!(
+                "No metadata found for [{}]/[{}] in any source",
+                display_id,
+                content_id
+            );
         }
         Ok(None)
     }

@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use configparser::ini::Ini;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -29,8 +30,9 @@ impl Config {
             if candidate.is_file() {
                 info!("Loading config from: {}", candidate.display());
                 let mut ini = Ini::new();
-                ini.load(candidate)
-                    .map_err(|e| anyhow!("Failed to load config from {}: {}", candidate.display(), e))?;
+                ini.load(candidate).map_err(|e| {
+                    anyhow!("Failed to load config from {}: {}", candidate.display(), e)
+                })?;
 
                 return Ok(Self {
                     ini,
@@ -88,7 +90,8 @@ impl Config {
 
     /// Get an integer value from config
     fn get_int(&self, section: &str, key: &str) -> Result<i32> {
-        let value = self.ini
+        let value = self
+            .ini
             .getint(section, key)
             .map_err(|e| anyhow!("[{}] {} error: {}", section, key, e))?
             .ok_or_else(|| anyhow!("[{}] {} not found in config", section, key))?;
@@ -170,14 +173,62 @@ impl Config {
 
     /// Get media file extensions (comma-separated)
     pub fn media_type(&self) -> String {
-        self.get_str("media", "media_type")
-            .unwrap_or_else(|_| ".mp4,.avi,.rmvb,.wmv,.mov,.mkv,.flv,.ts,.webm,.iso,.mpg,.m4v".to_string())
+        self.get_str("media", "media_type").unwrap_or_else(|_| {
+            ".mp4,.avi,.rmvb,.wmv,.mov,.mkv,.flv,.ts,.webm,.iso,.mpg,.m4v".to_string()
+        })
     }
 
     /// Get subtitle file extensions (comma-separated)
     pub fn sub_type(&self) -> String {
-        self.get_str("media", "sub_type")
-            .unwrap_or_else(|_| ".smi,.srt,.idx,.sub,.sup,.psb,.ssa,.ass,.usf,.xss,.ssf,.rt,.lrc,.sbv,.vtt,.ttml".to_string())
+        self.get_str("media", "sub_type").unwrap_or_else(|_| {
+            ".smi,.srt,.idx,.sub,.sup,.psb,.ssa,.ass,.usf,.xss,.ssf,.rt,.lrc,.sbv,.vtt,.ttml"
+                .to_string()
+        })
+    }
+
+    /// Get cookies configuration for scrapers
+    ///
+    /// Returns a HashMap where:
+    /// - Key: domain (e.g., "javdb.com")
+    /// - Value: HashMap of cookie name -> cookie value
+    ///
+    /// Example config.ini:
+    /// ```ini
+    /// [cookies]
+    /// javdb.com = _jdb_session=abc123,over18=1
+    /// javbus.com = cf_clearance=xyz789
+    /// ```
+    pub fn cookies(&self) -> HashMap<String, HashMap<String, String>> {
+        let mut result = HashMap::new();
+
+        // Get all keys in [cookies] section
+        if let Some(cookies_section) = self.ini.get_map_ref().get("cookies") {
+            for (domain, cookie_str_opt) in cookies_section {
+                // Skip if no value
+                let cookie_str = match cookie_str_opt {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let mut domain_cookies = HashMap::new();
+
+                // Parse cookie_str: "name1=value1,name2=value2"
+                for cookie_pair in cookie_str.split(',') {
+                    let parts: Vec<&str> = cookie_pair.trim().splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        let name = parts[0].trim().to_string();
+                        let value = parts[1].trim().to_string();
+                        domain_cookies.insert(name, value);
+                    }
+                }
+
+                if !domain_cookies.is_empty() {
+                    result.insert(domain.clone(), domain_cookies);
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -254,8 +305,14 @@ sub_type = .srt,.ass
         let config_path = create_test_config(temp_dir.path());
         let config = Config::load(Some(&config_path)).unwrap();
 
-        assert_eq!(config.source_folder().unwrap(), PathBuf::from("/test/source"));
-        assert_eq!(config.failed_folder().unwrap(), PathBuf::from("/test/failed"));
+        assert_eq!(
+            config.source_folder().unwrap(),
+            PathBuf::from("/test/source")
+        );
+        assert_eq!(
+            config.failed_folder().unwrap(),
+            PathBuf::from("/test/failed")
+        );
         assert_eq!(
             config.success_folder().unwrap(),
             PathBuf::from("/test/success")

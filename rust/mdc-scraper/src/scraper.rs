@@ -3,6 +3,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use scraper::{Html, Selector};
+use std::collections::HashMap;
 
 use crate::client::ScraperClient;
 use crate::metadata::MovieMetadata;
@@ -41,6 +42,11 @@ pub struct ScraperConfig {
 
     /// Specific URL to scrape (overrides search)
     pub specified_url: Option<String>,
+
+    /// Domain-based cookie storage
+    /// Key: domain (e.g., "javdb.com")
+    /// Value: HashMap of cookie name -> cookie value
+    pub cookies: HashMap<String, HashMap<String, String>>,
 }
 
 impl ScraperConfig {
@@ -51,6 +57,7 @@ impl ScraperConfig {
             debug: false,
             morestoryline: false,
             specified_url: None,
+            cookies: HashMap::new(),
         }
     }
 
@@ -70,6 +77,36 @@ impl ScraperConfig {
     pub fn specified_url(mut self, url: Option<String>) -> Self {
         self.specified_url = url;
         self
+    }
+
+    /// Set cookies for scrapers
+    pub fn cookies(mut self, cookies: HashMap<String, HashMap<String, String>>) -> Self {
+        self.cookies = cookies;
+        self
+    }
+
+    /// Add cookies for a specific domain
+    pub fn add_domain_cookies(mut self, domain: String, cookies: HashMap<String, String>) -> Self {
+        self.cookies.insert(domain, cookies);
+        self
+    }
+
+    /// Get cookies for a specific domain, formatted as Cookie header value
+    ///
+    /// # Arguments
+    /// * `domain` - Domain to get cookies for (e.g., "javdb.com")
+    ///
+    /// # Returns
+    /// * `Some(String)` - Cookie header value (e.g., "name1=value1; name2=value2")
+    /// * `None` - No cookies configured for this domain
+    pub fn get_cookie_header(&self, domain: &str) -> Option<String> {
+        self.cookies.get(domain).map(|domain_cookies| {
+            domain_cookies
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
     }
 }
 

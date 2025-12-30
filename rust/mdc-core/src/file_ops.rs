@@ -94,8 +94,13 @@ pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
             .with_context(|| format!("Failed to remove existing link: {:?}", dest))?;
     }
 
-    unix_fs::symlink(src, dest)
-        .with_context(|| format!("Failed to create symlink: {} -> {}", dest.display(), src.display()))?;
+    unix_fs::symlink(src, dest).with_context(|| {
+        format!(
+            "Failed to create symlink: {} -> {}",
+            dest.display(),
+            src.display()
+        )
+    })?;
 
     tracing::info!("Created soft link: {} -> {}", dest.display(), src.display());
     Ok(())
@@ -218,7 +223,8 @@ pub fn move_subtitles(
                         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                             // Check if subtitle belongs to this movie
                             if stem.starts_with(movie_stem) {
-                                let dest_sub = dest_dir.join(format!("{}.{}", dest_filename_base, ext));
+                                let dest_sub =
+                                    dest_dir.join(format!("{}.{}", dest_filename_base, ext));
                                 if let Ok(_) = execute_file_operation(&path, &dest_sub, link_mode) {
                                     moved_subs.push(dest_sub);
                                 }

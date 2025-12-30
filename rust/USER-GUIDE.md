@@ -513,39 +513,80 @@ Movie_Data_Capture/
 
 ## Metadata Scrapers
 
-MDC includes 7 metadata scrapers:
+MDC includes **10 metadata scrapers** organized in priority tiers:
 
-### JAV-Specific Scrapers
+### Understanding the Dual ID System
 
-1. **JAVLibrary** (`javlibrary`)
+JAV movies use two ID formats depending on the source:
+
+- **Display Format**: Human-readable IDs like `SSIS-123`, `ABP-456`
+  - Used by most scrapers (JavDB, JAVBus, AVMOO, R18Dev)
+  - Used in filenames and NFO files
+
+- **Content Format**: API-compatible IDs like `ssis00123`, `abp00456`
+  - Used by DMM and JAVLibrary (requires lowercase + zero-padding)
+  - Automatically generated from display format
+
+**MDC automatically handles both formats** - you don't need to worry about conversion!
+
+### TIER 1: Official & High-Quality Sources
+
+**1. DMM** (`dmm`) ⭐ **NEW**
+   - Official FANZA/DMM store - **most authoritative** source
+   - Highest quality metadata and images
+   - All other scrapers reference DMM as ground truth
+   - **Requires**: Content ID format (auto-converted)
+   - **Best for**: Official Japanese releases
+   - **URL**: dmm.co.jp
+
+**2. R18Dev** (`r18dev`) ⭐ **NEW**
+   - Modern JSON API - clean, structured data
+   - **Best English translations** for international users
+   - Multiple image sizes, user ratings
+   - Fast and reliable (no HTML parsing needed)
+   - **Best for**: English metadata
+   - **URL**: r18.dev
+
+**3. JavDB** (`javdb`) ⭐ **NEW**
+   - Modern multi-language aggregator
+   - Excellent UI and comprehensive coverage
+   - Dual locale support (English/Chinese)
+   - **Session cookie support** for authentication
+   - **Best for**: Multi-language metadata
+   - **URL**: javdb.com
+
+### TIER 2: Comprehensive Aggregators
+
+**4. JAVLibrary** (`javlibrary`)
    - Comprehensive JAV database
    - Japanese and English support
    - Complete metadata (actors, genres, studio, etc.)
+   - **Requires**: Content ID format (auto-converted)
    - **Best for**: Comprehensive metadata
    - **URL**: javlibrary.com
 
-2. **JAVBus** (`javbus`)
+**5. JAVBus** (`javbus`)
    - Popular JAV aggregator
    - Chinese/English interface
    - Extensive coverage
+   - **Cloudflare protection** (may require cookies)
    - **Best for**: General JAV content
    - **URL**: javbus.com
 
-3. **AVMOO** (`avmoo`)
+**6. AVMOO** (`avmoo`)
    - Multi-language support
-   - Good coverage
-   - Similar to JAVBus
+   - Good coverage, similar to JAVBus
    - **Best for**: Alternative to JAVBus
    - **URL**: avmoo.com
 
-4. **FC2** (`fc2`)
+**7. FC2** (`fc2`)
    - Specialized for FC2-PPV content
    - Amateur content support
    - FC2-specific metadata
    - **Best for**: FC2 movies only
    - **URL**: adult.contents.fc2.com
 
-5. **Tokyo-Hot** (`tokyohot`)
+**8. Tokyo-Hot** (`tokyohot`)
    - Premium JAV studio
    - Official site scraping
    - Uncensored content
@@ -554,30 +595,84 @@ MDC includes 7 metadata scrapers:
 
 ### General Movie Scrapers
 
-6. **TMDB** (`tmdb`)
+**9. TMDB** (`tmdb`)
    - The Movie Database
    - General movies and TV shows
    - High-quality metadata
    - **Best for**: Western movies/TV
    - **URL**: themoviedb.org
 
-7. **IMDB** (`imdb`)
+**10. IMDB** (`imdb`)
    - Internet Movie Database
    - Comprehensive movie info
    - Rating data
    - **Best for**: Western movies
    - **URL**: imdb.com
 
-### Scraper Priority
+### Scraper Priority Order
 
-Scrapers are tried in order specified in config:
+**Default Priority** (optimized for success rate):
 
 ```ini
 [priority]
-website = javlibrary,javbus,avmoo,fc2,tokyohot,tmdb,imdb
+website = dmm,r18dev,javdb,javlibrary,javbus,avmoo,fc2,tokyohot,tmdb,imdb
 ```
 
-**Default order**: JAV scrapers first, then general scrapers
+**Explanation**:
+1. **DMM** - Official source, highest quality
+2. **R18Dev** - Best English translations
+3. **JavDB** - Modern multi-language
+4. **JAVLibrary** - Comprehensive fallback
+5. **JAVBus/AVMOO** - Wide coverage
+6. **FC2/Tokyo-Hot** - Studio-specific
+7. **TMDB/IMDB** - General movies
+
+**Custom Priority**:
+```cmd
+# Only use DMM and JavDB
+mdc-cli.exe "C:\Movies" -s --sources dmm,javdb
+
+# Skip official sources (faster, less accurate)
+mdc-cli.exe "C:\Movies" -s --sources javbus,avmoo
+```
+
+### Cookie Configuration for Protected Sites
+
+Some scrapers may require authentication cookies:
+
+**JavDB** - Session cookie for authenticated requests:
+```ini
+[cookies]
+javdb.com = _jdb_session=YOUR_SESSION_TOKEN_HERE
+```
+
+**JAVBus** - Cloudflare clearance cookie:
+```ini
+[cookies]
+javbus.com = cf_clearance=YOUR_CF_TOKEN_HERE
+```
+
+See [Cookie Configuration Guide](COOKIE-CONFIGURATION.md) for detailed instructions.
+
+### Scraper-Specific Notes
+
+**DMM & JAVLibrary**:
+- Automatically receive content IDs (e.g., `ssis00123`)
+- MDC handles conversion from display format
+
+**JavDB**:
+- Dual locale strategy: English first, Chinese fallback
+- Optional session cookie for better reliability
+- See `COOKIE-CONFIGURATION.md` for setup
+
+**R18Dev**:
+- Pure JSON API - no HTML parsing
+- Dual endpoint strategy for maximum compatibility
+- Automatic failover between endpoints
+
+**FC2 & Tokyo-Hot**:
+- Only activate for movies with matching prefixes
+- Skip for standard JAV IDs to improve performance
 
 ---
 

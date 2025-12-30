@@ -1,5 +1,5 @@
-use mdc_image::{CropMode, FaceDetector, FaceLocation, ImageProcessor, ProcessorConfig};
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
+use mdc_image::{CropMode, FaceDetector, FaceLocation, ImageProcessor, ProcessorConfig};
 use tempfile::TempDir;
 
 /// Create a test image (solid color)

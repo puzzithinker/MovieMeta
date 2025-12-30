@@ -188,10 +188,7 @@ pub struct ConfigResponse {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ProgressMessage {
     /// Job started
-    JobStarted {
-        job_id: String,
-        total_files: usize,
-    },
+    JobStarted { job_id: String, total_files: usize },
 
     /// File processing started
     FileStarted {
@@ -220,8 +217,5 @@ pub enum ProgressMessage {
     },
 
     /// Job failed
-    JobFailed {
-        job_id: String,
-        error: String,
-    },
+    JobFailed { job_id: String, error: String },
 }

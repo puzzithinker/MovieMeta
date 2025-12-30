@@ -1,0 +1,84 @@
+# MovieMeta Configuration File
+#
+# This file can be placed in one of the following locations:
+#  1. ./config.ini (current directory)
+#  2. ~/mdc.ini
+#  3. ~/.mdc.ini
+#  4. ~/.mdc/config.ini
+#  5. ~/.config/mdc/config.ini
+#
+# The first file found will be used.
+
+[common]
+# Processing mode: 1=Scraping (full metadata), 2=Organizing (move only), 3=Analysis (scrape in-place)
+main_mode = 1
+
+# Source folder containing video files
+source_folder = /path/to/source
+
+# Output folder for failed files
+failed_output_folder = /path/to/failed
+
+# Output folder for successfully processed files
+success_output_folder = /path/to/success
+
+# Link mode: 0=move files, 1=soft link, 2=hard link
+link_mode = 0
+
+# Scan hard links
+scan_hardlink = false
+
+# Move failed files to failed folder
+failed_move = true
+
+# Auto exit after completion
+auto_exit = false
+
+# Skip NFO if modified within N days (0=always generate)
+nfo_skip_days = 0
+
+[debug_mode]
+# Enable debug logging
+switch = false
+
+[priority]
+# Scraper priority order (comma-separated)
+# Available: dmm, r18dev, javdb, javlibrary, javbus, avmoo, fc2, tokyohot, tmdb, imdb
+website = dmm,r18dev,javdb,javlibrary,javbus
+
+[media]
+# Supported media file extensions
+media_type = .mp4,.avi,.rmvb,.wmv,.mov,.mkv,.flv,.ts,.webm,.iso,.mpg,.m4v
+
+# Supported subtitle file extensions
+sub_type = .smi,.srt,.idx,.sub,.sup,.psb,.ssa,.ass,.usf,.xss,.ssf,.rt,.lrc,.sbv,.vtt,.ttml
+
+# ============================================================================
+# COOKIE CONFIGURATION FOR SCRAPERS
+# ============================================================================
+# Some scraper websites (like JavDB, JAVBus) may require authentication cookies
+# to bypass bot protection or access certain content.
+#
+# How to get cookies:
+#  1. Visit the website in your browser (e.g., https://javdb.com)
+#  2. Login if required / complete any verification
+#  3. Open browser DevTools (F12) → Application/Storage → Cookies
+#  4. Find the cookie name and value
+#  5. Add them here in format: domain = name1=value1,name2=value2
+#
+# Multiple cookies for the same domain should be comma-separated.
+# ============================================================================
+
+[cookies]
+# JavDB session cookie (required if JavDB blocks unauthenticated requests)
+# Cookie name: _jdb_session
+# Example: javdb.com = _jdb_session=YOUR_SESSION_TOKEN_HERE
+#javdb.com = _jdb_session=abc123def456,over18=1
+
+# JAVBus Cloudflare clearance (required if Cloudflare protection is active)
+# Cookie name: cf_clearance
+# Example: javbus.com = cf_clearance=YOUR_CF_TOKEN_HERE
+#javbus.com = cf_clearance=xyz789
+
+# Add more domains as needed
+# Format: domain.com = cookie1=value1,cookie2=value2

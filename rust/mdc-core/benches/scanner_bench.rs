@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use mdc_core::scanner::{Scanner, ScannerConfig};
 use std::fs::{self, File};
 use tempfile::TempDir;
@@ -42,9 +42,7 @@ fn bench_scan_sizes(c: &mut Criterion) {
                 b.iter(|| {
                     let scanner = Scanner::new(config.clone());
                     let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
-                        scanner.scan().await
-                    })
+                    rt.block_on(async { scanner.scan().await })
                 });
             },
         );
@@ -66,9 +64,7 @@ fn bench_scan_10k_files(c: &mut Criterion) {
         b.iter(|| {
             let scanner = Scanner::new(config.clone());
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                scanner.scan().await
-            })
+            rt.block_on(async { scanner.scan().await })
         });
     });
 }
@@ -89,9 +85,7 @@ fn bench_scan_with_filters(c: &mut Criterion) {
         b.iter(|| {
             let scanner = Scanner::new(config_baseline.clone());
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                scanner.scan().await
-            })
+            rt.block_on(async { scanner.scan().await })
         });
     });
 
@@ -106,9 +100,7 @@ fn bench_scan_with_filters(c: &mut Criterion) {
         b.iter(|| {
             let scanner = Scanner::new(config_media.clone());
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                scanner.scan().await
-            })
+            rt.block_on(async { scanner.scan().await })
         });
     });
 
@@ -123,9 +115,7 @@ fn bench_scan_with_filters(c: &mut Criterion) {
         b.iter(|| {
             let scanner = Scanner::new(config_regex.clone());
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                scanner.scan().await
-            })
+            rt.block_on(async { scanner.scan().await })
         });
     });
 
@@ -157,9 +147,7 @@ fn bench_deep_directory_structure(c: &mut Criterion) {
         b.iter(|| {
             let scanner = Scanner::new(config.clone());
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                scanner.scan().await
-            })
+            rt.block_on(async { scanner.scan().await })
         });
     });
 }

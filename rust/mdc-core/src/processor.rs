@@ -128,9 +128,7 @@ impl Template {
                     serde_json::Value::String(s) => Some(s.clone()),
                     serde_json::Value::Array(arr) if !arr.is_empty() => {
                         // For arrays like actors, take first element
-                        arr.first()
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
+                        arr.first().and_then(|v| v.as_str()).map(|s| s.to_string())
                     }
                     _ => None,
                 })

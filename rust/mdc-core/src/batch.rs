@@ -190,10 +190,10 @@ impl Clone for BatchProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor::{LinkMode, ProcessingMode};
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
-    use crate::processor::{ProcessingMode, LinkMode};
 
     #[tokio::test]
     async fn test_batch_processor() {
@@ -301,9 +301,8 @@ mod tests {
 
         let processor = BatchProcessor::new(config, 1);
 
-        let metadata_provider = Arc::new(|_dual_id: DualId| async move {
-            Err(anyhow::anyhow!("Metadata not found"))
-        });
+        let metadata_provider =
+            Arc::new(|_dual_id: DualId| async move { Err(anyhow::anyhow!("Metadata not found")) });
 
         let files = vec![file1];
         let (results, stats) = processor

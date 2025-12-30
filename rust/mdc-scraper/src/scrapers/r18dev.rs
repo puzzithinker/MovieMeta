@@ -45,7 +45,11 @@ impl R18DevScraper {
     }
 
     /// Try to fetch metadata using combined (content_id) endpoint
-    async fn try_combined_endpoint(&self, content_id: &str, config: &ScraperConfig) -> Result<Value> {
+    async fn try_combined_endpoint(
+        &self,
+        content_id: &str,
+        config: &ScraperConfig,
+    ) -> Result<Value> {
         let url = format!("{}/combined={}/json", self.base_url, content_id);
 
         if config.debug {
@@ -63,7 +67,9 @@ impl R18DevScraper {
         let mut metadata = MovieMetadata::default();
 
         // Extract main movie object
-        let movie = json.get("movie").ok_or_else(|| anyhow!("No movie object in JSON"))?;
+        let movie = json
+            .get("movie")
+            .ok_or_else(|| anyhow!("No movie object in JSON"))?;
 
         // DVD ID (product_id)
         if let Some(dvd_id) = movie.get("dvd_id").and_then(|v| v.as_str()) {
@@ -88,9 +94,17 @@ impl R18DevScraper {
         // Cover image
         if let Some(images) = movie.get("images") {
             // Try to get the largest cover image
-            if let Some(jacket_full) = images.get("jacket_image").and_then(|v| v.get("large")).and_then(|v| v.as_str()) {
+            if let Some(jacket_full) = images
+                .get("jacket_image")
+                .and_then(|v| v.get("large"))
+                .and_then(|v| v.as_str())
+            {
                 metadata.cover = jacket_full.to_string();
-            } else if let Some(jacket) = images.get("jacket_image").and_then(|v| v.get("medium")).and_then(|v| v.as_str()) {
+            } else if let Some(jacket) = images
+                .get("jacket_image")
+                .and_then(|v| v.get("medium"))
+                .and_then(|v| v.as_str())
+            {
                 metadata.cover = jacket.to_string();
             }
         }
@@ -159,7 +173,11 @@ impl R18DevScraper {
         }
 
         // Rating (if available)
-        if let Some(rating) = movie.get("rating").and_then(|v| v.get("average")).and_then(|v| v.as_f64()) {
+        if let Some(rating) = movie
+            .get("rating")
+            .and_then(|v| v.get("average"))
+            .and_then(|v| v.as_f64())
+        {
             metadata.userrating = rating as f32;
         }
 

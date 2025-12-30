@@ -1,7 +1,190 @@
-//! Movie number parser
+//! Movie number parser with dual ID support
 //!
 //! This module extracts movie numbers from filenames using various patterns and rules.
-//! It's a direct port of the Python `number_parser.py` with 100% compatibility.
+//! It provides a **dual ID system** that generates both human-readable display IDs
+//! and API-compatible content IDs for maximum scraper compatibility.
+//!
+//! ## Overview
+//!
+//! JAV (Japanese Adult Video) movies use multiple ID formats depending on the source:
+//! - **Display Format**: Human-readable IDs like `SSIS-123`, `ABP-456` (used in filenames, NFO files)
+//! - **Content Format**: API-compatible IDs like `ssis00123`, `abp00456` (used by DMM, JAVLibrary)
+//!
+//! This module automatically generates both formats, enabling seamless integration with
+//! all scraper types while maintaining backward compatibility with the original Python implementation.
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use mdc_core::number_parser::{parse_number, get_number};
+//!
+//! // New API: Returns dual IDs + attributes
+//! let parsed = parse_number("[website]SSIS-123.mp4", None).unwrap();
+//! assert_eq!(parsed.id, "SSIS-123");           // Display ID
+//! assert_eq!(parsed.content_id, "ssis00123");  // Content ID
+//!
+//! // Legacy API: Returns display ID only (backward compatible)
+//! let id = get_number("[website]SSIS-123.mp4", None).unwrap();
+//! assert_eq!(id, "SSIS-123");
+//! ```
+//!
+//! ## Dual ID System
+//!
+//! ### Display ID → Content ID Conversion
+//!
+//! The conversion follows these rules:
+//!
+//! 1. **Standard IDs**: `SSIS-123` → `ssis00123`
+//!    - Lowercase the prefix
+//!    - Remove hyphen
+//!    - Zero-pad number to 5 digits
+//!
+//! 2. **T28/R18 IDs**: `T28-123` → `t2800123`
+//!    - Special handling: insert "00" after prefix
+//!    - Maintains compatibility with DMM's T28/R18 format
+//!
+//! 3. **FC2 IDs**: `FC2-PPV-123456` → `fc2-ppv-123456`
+//!    - Preserve hyphens (FC2 uses hyphenated format)
+//!    - Lowercase only
+//!
+//! 4. **Tokyo-Hot IDs**: `n1234`, `k5678`
+//!    - Keep lowercase prefix
+//!    - No zero-padding (Tokyo-Hot uses variable length)
+//!
+//! 5. **HEYZO IDs**: `HEYZO-1234` → `heyzo-1234`
+//!    - 4-digit padding (fixed format)
+//!    - Preserve hyphen
+//!
+//! ### Content ID → Display ID Conversion
+//!
+//! Reverse conversion for API responses:
+//!
+//! ```rust
+//! use mdc_core::number_parser::{convert_to_display_id, convert_to_content_id};
+//!
+//! // Standard conversion
+//! let display = convert_to_display_id("ssis00123");
+//! assert_eq!(display, "SSIS-123");  // Uppercase, hyphen inserted, zeros trimmed
+//!
+//! // Roundtrip validation
+//! let original = "SSIS-123";
+//! let content = convert_to_content_id(original);
+//! let back = convert_to_display_id(&content);
+//! assert_eq!(original, back);
+//! ```
+//!
+//! ## Special Format Handling
+//!
+//! ### T28/R18 Normalization
+//!
+//! Filenames with T28/R18 prefixes are normalized during parsing:
+//! - `t28123.mp4` → `T28-123` (display) + `t2800123` (content)
+//! - `r18-456.mp4` → `R18-456` (display) + `r1800456` (content)
+//! - Handles variations: `t28`, `t-28`, `T28`, `T-28`
+//!
+//! ### Multi-Part Detection
+//!
+//! Letter suffixes indicate multi-part videos:
+//! - `SSIS-123-A.mp4` → ID: `SSIS-123`, Part: 1
+//! - `SSIS-123-B.mp4` → ID: `SSIS-123`, Part: 2
+//! - Converts A→1, B→2, ..., Y→25
+//!
+//! ### Attribute Detection
+//!
+//! Automatically detects special attributes:
+//! - **Chinese Subtitles**: `-C` suffix → `cn_sub = true`
+//! - **Uncensored**: `-U` or `-UC` suffix → `uncensored = true`
+//! - **Special Sites**: `FC2`, `Tokyo-Hot`, etc. → `special_site = Some("fc2")`
+//!
+//! ## Configuration
+//!
+//! Use `ParserConfig` for advanced parsing:
+//!
+//! ```rust
+//! use mdc_core::number_parser::{parse_number, ParserConfig};
+//! # use anyhow::Result;
+//!
+//! # fn example() -> Result<()> {
+//! let config = ParserConfig {
+//!     custom_regexs: vec![r"CUSTOM-(\d+)".to_string()],
+//!     removal_strings: vec!["[unwanted]".to_string()],
+//!     strict_mode: true,
+//!     regex_id_match: 1,      // Capture group for ID
+//!     regex_pt_match: 2,      // Capture group for part number
+//!     uncensored_prefixes: "".to_string(),
+//! };
+//!
+//! let parsed = parse_number("filename.mp4", Some(&config))?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## API Reference
+//!
+//! ### Primary Functions
+//!
+//! - **`parse_number(file_path, config)`** - New API, returns `ParsedNumber` with dual IDs
+//! - **`get_number(file_path, custom_regexs)`** - Legacy API, returns display ID only
+//! - **`convert_to_content_id(display_id)`** - Convert display → content format
+//! - **`convert_to_display_id(content_id)`** - Convert content → display format
+//!
+//! ### When to Use Each Function
+//!
+//! - Use **`parse_number()`** for new code (full feature set, dual IDs)
+//! - Use **`get_number()`** for backward compatibility (legacy code)
+//! - Use **`convert_to_*`** when you have IDs from external sources
+//!
+//! ## Examples
+//!
+//! ### Basic Parsing
+//!
+//! ```rust
+//! use mdc_core::number_parser::parse_number;
+//!
+//! let parsed = parse_number("SSIS-123.mp4", None).unwrap();
+//! println!("Display: {}", parsed.id);           // "SSIS-123"
+//! println!("Content: {}", parsed.content_id);   // "ssis00123"
+//! ```
+//!
+//! ### With Attributes
+//!
+//! ```rust
+//! use mdc_core::number_parser::parse_number;
+//!
+//! let parsed = parse_number("SSIS-123-C.mp4", None).unwrap();
+//! assert!(parsed.attributes.cn_sub);  // Chinese subtitles detected
+//! ```
+//!
+//! ### Multi-Part Videos
+//!
+//! ```rust
+//! use mdc_core::number_parser::parse_number;
+//!
+//! let parsed = parse_number("SSIS-123-A.mp4", None).unwrap();
+//! assert_eq!(parsed.part_number, Some(1));  // Part A = 1
+//! ```
+//!
+//! ### Custom Configuration
+//!
+//! ```rust
+//! use mdc_core::number_parser::{parse_number, ParserConfig};
+//! # use anyhow::Result;
+//!
+//! # fn example() -> Result<()> {
+//! let mut config = ParserConfig::default();
+//! config.removal_strings.push("[unwanted]".to_string());
+//! let parsed = parse_number("[unwanted]SSIS-123.mp4", Some(&config))?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Implementation Notes
+//!
+//! - Direct port of Python `number_parser.py` with 100% compatibility
+//! - All original regex patterns preserved
+//! - 70+ test cases ensuring correctness
+//! - Zero unsafe code
+//! - Efficient regex compilation with `OnceLock`
 
 use anyhow::{anyhow, Result};
 use regex::Regex;
@@ -283,23 +466,20 @@ fn extract_xart(filename: &str) -> Option<String> {
 
 fn extract_xxxav(filename: &str) -> Option<String> {
     let re = Regex::new(r"(?i)xxx-av[^\d]*(\d{3,5})[^\d]*").ok()?;
-    re.captures(filename).map(|caps| {
-        format!("xxx-av-{}", &caps[1])
-    })
+    re.captures(filename)
+        .map(|caps| format!("xxx-av-{}", &caps[1]))
 }
 
 fn extract_heydouga(filename: &str) -> Option<String> {
     let re = Regex::new(r"(?i)(\d{4})[-_](\d{3,4})[^\d]*").ok()?;
-    re.captures(filename).map(|caps| {
-        format!("heydouga-{}-{}", &caps[1], &caps[2])
-    })
+    re.captures(filename)
+        .map(|caps| format!("heydouga-{}-{}", &caps[1], &caps[2]))
 }
 
 fn extract_heyzo(filename: &str) -> Option<String> {
     let re = Regex::new(r"(?i)heyzo[^\d]*(\d{4})").ok()?;
-    re.captures(filename).map(|caps| {
-        format!("HEYZO-{}", &caps[1])
-    })
+    re.captures(filename)
+        .map(|caps| format!("HEYZO-{}", &caps[1]))
 }
 
 fn extract_mdbk(filename: &str) -> Option<String> {
@@ -469,7 +649,9 @@ pub fn convert_to_display_id(content_id: &str) -> String {
     if let Some(caps) = re.captures(&lower) {
         let prefix = caps[1].to_uppercase();
         let digits = &caps[2];
-        let suffix = caps.get(3).map_or(String::new(), |m| m.as_str().to_uppercase());
+        let suffix = caps
+            .get(3)
+            .map_or(String::new(), |m| m.as_str().to_uppercase());
 
         // Trim leading zeros but keep at least 3 digits
         let trimmed = digits.trim_start_matches('0');
@@ -552,7 +734,7 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     // Pattern: [-][0-9]{1,6}Z?\s?[-]?\s?[A-Y]$
     // Match letter suffixes A-Y (excluding Z which is a special marker)
     // Also EXCLUDE C and U when alone, as they're attribute markers
-    let re = Regex::new(r"^(.+?)[-_]([ABD-TVWXY])$").unwrap();  // Excludes C, U, Z
+    let re = Regex::new(r"^(.+?)[-_]([ABD-TVWXY])$").unwrap(); // Excludes C, U, Z
 
     if let Some(caps) = re.captures(id) {
         let base_id = caps[1].to_string();
@@ -621,11 +803,13 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     // This handles variations: t28, t-28, T28, T-28, r18, r-18, R18, R-18
     // Javinizer feature: Standardize these studio IDs to consistent format
     if let Ok(re) = Regex::new(r"(?i)^(t-?28|r-?18)[-_]?(\d+)") {
-        cleaned = re.replace(&cleaned, |caps: &regex::Captures| {
-            let prefix = caps[1].to_uppercase().replace("-", "");
-            let digits = &caps[2];
-            format!("{}-{}", prefix, digits)
-        }).to_string();
+        cleaned = re
+            .replace(&cleaned, |caps: &regex::Captures| {
+                let prefix = caps[1].to_uppercase().replace("-", "");
+                let digits = &caps[2];
+                format!("{}-{}", prefix, digits)
+            })
+            .to_string();
     }
 
     // Strip email/username prefixes: user@domain@, username@site.com@
@@ -634,7 +818,9 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     }
 
     // Strip domain prefixes: domain.com-, site.tv-, etc.
-    if let Ok(re) = Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de)-") {
+    if let Ok(re) =
+        Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de)-")
+    {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
@@ -653,14 +839,17 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     if let Ok(re) = Regex::new(r"(?i)[-_](pt)?[-_]?([1-9]|1[0-9])(\.|$)") {
         // Only replace if it looks like a part marker, not part of the actual ID
         // Check that there's already content before the part marker
-        if cleaned.len() > 5 {  // Ensure we have an ID before the part marker
+        if cleaned.len() > 5 {
+            // Ensure we have an ID before the part marker
             cleaned = re.replace_all(&cleaned, "$3").to_string();
         }
     }
 
     // Strip quality markers that directly follow digits with NO separator (e.g., "CZBD-015FULLHD.mp4")
     // This handles cases like 015FULLHD, 123HD, 456FHD, etc.
-    if let Ok(re) = Regex::new(r"(?i)(\d)(FULLHD|1080P|720P|480P|H\.?265|H\.?264|X265|X264|HEVC|FHD|4K|UHD|HQ|HD)(\.|$)") {
+    if let Ok(re) = Regex::new(
+        r"(?i)(\d)(FULLHD|1080P|720P|480P|H\.?265|H\.?264|X265|X264|HEVC|FHD|4K|UHD|HQ|HD)(\.|$)",
+    ) {
         cleaned = re.replace_all(&cleaned, "$1$3").to_string();
     }
 
@@ -670,16 +859,17 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     // Only strips when quality marker comes AFTER digits (end of valid code)
     // This prevents stripping "heyzo_hd_1234" where hd is part of the original name
     // IMPORTANT: Longer patterns first to avoid partial matches (H265 before HD, FULLHD before HD, etc.)
-    if let Ok(re) = Regex::new(r"(?i)(\d+)[-_](H\.?265|H\.?264|FULLHD|1080P|720P|480P|X265|X264|HEVC|FHD|4K|UHD|HD|HQ).*?(\.|$)") {
+    if let Ok(re) = Regex::new(
+        r"(?i)(\d+)[-_](H\.?265|H\.?264|FULLHD|1080P|720P|480P|X265|X264|HEVC|FHD|4K|UHD|HD|HQ).*?(\.|$)",
+    ) {
         cleaned = re.replace_all(&cleaned, "$1$3").to_string();
     }
 
     // Strip common quality markers at end using simple string replacement
     // These suffixes are always noise when at the very end
     let quality_suffixes = [
-        "-1080P", "_1080P", "-720P", "_720P", "-480P", "_480P",
-        "-FULLHD", "_FULLHD", "-FHD", "_FHD", "-4K", "_4K",
-        "-UHD", "_UHD", "-HQ", "_HQ",
+        "-1080P", "_1080P", "-720P", "_720P", "-480P", "_480P", "-FULLHD", "_FULLHD", "-FHD",
+        "_FHD", "-4K", "_4K", "-UHD", "_UHD", "-HQ", "_HQ",
     ];
     for suffix in &quality_suffixes {
         if cleaned.to_uppercase().ends_with(suffix) {
@@ -709,7 +899,11 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     if cleaned.to_uppercase().contains("-HD.") || cleaned.to_uppercase().contains("_HD.") {
         let temp = cleaned.to_uppercase();
         if !temp.contains("HD-") {
-            cleaned = cleaned.replace("-HD.", ".").replace("_HD.", ".").replace("-hd.", ".").replace("_hd.", ".");
+            cleaned = cleaned
+                .replace("-HD.", ".")
+                .replace("_HD.", ".")
+                .replace("-hd.", ".")
+                .replace("_hd.", ".");
         }
     }
 
@@ -726,7 +920,9 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     }
 
     // Clean up leading/trailing separators
-    cleaned.trim_matches(|c| c == '-' || c == '_' || c == ' ').to_string()
+    cleaned
+        .trim_matches(|c| c == '-' || c == '_' || c == ' ')
+        .to_string()
 }
 
 /// Strip common suffixes from the number and normalize
@@ -868,13 +1064,15 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
             if let Ok(re) = Regex::new(regex_str) {
                 if let Some(caps) = re.captures(&cleaned_filepath) {
                     // Extract ID from configured capture group
-                    let id = caps.get(config.regex_id_match)
+                    let id = caps
+                        .get(config.regex_id_match)
                         .map(|m| m.as_str().to_string())
                         .or_else(|| caps.get(0).map(|m| m.as_str().to_string()))
                         .unwrap_or_default();
 
                     // Extract part number if configured
-                    let part = caps.get(config.regex_pt_match)
+                    let part = caps
+                        .get(config.regex_pt_match)
                         .and_then(|m| m.as_str().parse::<u8>().ok());
 
                     if !id.is_empty() {
@@ -946,11 +1144,17 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
 
     // Check for -C suffix (Chinese subtitles) - only multi-char patterns to avoid conflict with part C
     // Accept: -CH, -CHN, -CHS, -CHT, -CN_SUB, etc.
-    attrs.cn_sub = Regex::new(r"(?i)[-_](ch|chn|chs|cht|cn[-_]?sub)$").unwrap().is_match(&id_without_part)
-        || Regex::new(r"(?i)[-_]c$").unwrap().is_match(&id_without_part);
+    attrs.cn_sub = Regex::new(r"(?i)[-_](ch|chn|chs|cht|cn[-_]?sub)$")
+        .unwrap()
+        .is_match(&id_without_part)
+        || Regex::new(r"(?i)[-_]c$")
+            .unwrap()
+            .is_match(&id_without_part);
 
     // Check for -U or -UC suffix (uncensored)
-    attrs.uncensored = Regex::new(r"(?i)[-_]u(c)?$").unwrap().is_match(&id_without_part);
+    attrs.uncensored = Regex::new(r"(?i)[-_]u(c)?$")
+        .unwrap()
+        .is_match(&id_without_part);
 
     // Strip the suffix to get clean ID
     let clean_id = strip_suffix(&id_without_part);
@@ -1307,13 +1511,22 @@ mod tests {
 
     #[test]
     fn test_get_number_carib() {
-        assert_eq!(get_number("carib-123456-789.mp4", None).unwrap(), "123456-789");
-        assert_eq!(get_number("caribbeancom-123456_789.mp4", None).unwrap(), "123456-789");
+        assert_eq!(
+            get_number("carib-123456-789.mp4", None).unwrap(),
+            "123456-789"
+        );
+        assert_eq!(
+            get_number("caribbeancom-123456_789.mp4", None).unwrap(),
+            "123456-789"
+        );
     }
 
     #[test]
     fn test_get_number_1pon() {
-        assert_eq!(get_number("1pondo_123456_789.mp4", None).unwrap(), "123456_789");
+        assert_eq!(
+            get_number("1pondo_123456_789.mp4", None).unwrap(),
+            "123456_789"
+        );
     }
 
     #[test]
@@ -1374,7 +1587,10 @@ mod tests {
 
     #[test]
     fn test_western_format() {
-        assert_eq!(get_number("x-art.18.05.15.mp4", None).unwrap(), "x-art.18.05.15");
+        assert_eq!(
+            get_number("x-art.18.05.15.mp4", None).unwrap(),
+            "x-art.18.05.15"
+        );
     }
 
     // New tests for filename cleaning functionality
@@ -1382,9 +1598,18 @@ mod tests {
     #[test]
     fn test_clean_website_tags() {
         // Test various website tag patterns
-        assert_eq!(get_number("[Thz.la]jufd-643.mp4", None).unwrap(), "JUFD-643");
-        assert_eq!(get_number("[7sht.me]SSIS-123.mp4", None).unwrap(), "SSIS-123");
-        assert_eq!(get_number("[ses23.com]ABC-456.avi", None).unwrap(), "ABC-456");
+        assert_eq!(
+            get_number("[Thz.la]jufd-643.mp4", None).unwrap(),
+            "JUFD-643"
+        );
+        assert_eq!(
+            get_number("[7sht.me]SSIS-123.mp4", None).unwrap(),
+            "SSIS-123"
+        );
+        assert_eq!(
+            get_number("[ses23.com]ABC-456.avi", None).unwrap(),
+            "ABC-456"
+        );
     }
 
     #[test]
@@ -1399,9 +1624,15 @@ mod tests {
         // Test domain.com- patterns
         // Note: BEB077 without dash stays as BEB077 (no automatic dash insertion)
         assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB077");
-        assert_eq!(get_number("www.site.com-ABC-123.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(
+            get_number("www.site.com-ABC-123.mp4", None).unwrap(),
+            "ABC-123"
+        );
         // With dash in original, it's preserved
-        assert_eq!(get_number("jp.myav.tv-BEB-077.avi", None).unwrap(), "BEB-077");
+        assert_eq!(
+            get_number("jp.myav.tv-BEB-077.avi", None).unwrap(),
+            "BEB-077"
+        );
     }
 
     #[test]
@@ -1417,8 +1648,14 @@ mod tests {
     #[test]
     fn test_clean_combined_patterns() {
         // Test multiple cleaning patterns at once
-        assert_eq!(get_number("[Thz.la]jufd-643-FHD.mp4", None).unwrap(), "JUFD-643");
-        assert_eq!(get_number("[site.com]ABC-123-1080P-C.mp4", None).unwrap(), "ABC-123");
+        assert_eq!(
+            get_number("[Thz.la]jufd-643-FHD.mp4", None).unwrap(),
+            "JUFD-643"
+        );
+        assert_eq!(
+            get_number("[site.com]ABC-123-1080P-C.mp4", None).unwrap(),
+            "ABC-123"
+        );
     }
 
     #[test]
@@ -1431,7 +1668,10 @@ mod tests {
     #[test]
     fn test_real_world_problematic_files() {
         // Real filenames from user's failed list
-        assert_eq!(get_number("[Thz.la]jufd-643.mp4", None).unwrap(), "JUFD-643");
+        assert_eq!(
+            get_number("[Thz.la]jufd-643.mp4", None).unwrap(),
+            "JUFD-643"
+        );
 
         let result1 = get_number("roger92402094@www.sexinsex.net@AVGL-012.avi", None).unwrap();
         assert_eq!(result1, "AVGL-012");
@@ -1463,14 +1703,20 @@ mod tests {
         let result = get_number("0201-SNIS091.mp4", None).unwrap();
         println!("Extracted from '0201-SNIS091.mp4': {}", result);
         // Should extract SNIS091, not 0201-SNIS091
-        assert!(!result.contains("0201"), "Should not contain date prefix '0201'");
+        assert!(
+            !result.contains("0201"),
+            "Should not contain date prefix '0201'"
+        );
         assert!(result.contains("SNIS"), "Should contain 'SNIS'");
     }
 
     #[test]
     fn test_parentheses_quality_markers() {
         // Priority 1: Strip parenthesized quality markers at start
-        assert_eq!(get_number("(HD)avop-212A.HD.mp4", None).unwrap(), "AVOP-212A");
+        assert_eq!(
+            get_number("(HD)avop-212A.HD.mp4", None).unwrap(),
+            "AVOP-212A"
+        );
         assert_eq!(get_number("(FHD)ABC-123.mp4", None).unwrap(), "ABC-123");
         assert_eq!(get_number("(4K)XYZ-456.mp4", None).unwrap(), "XYZ-456");
         assert_eq!(get_number("(1080P)TEST-001.mkv", None).unwrap(), "TEST-001");
@@ -1480,20 +1726,38 @@ mod tests {
     fn test_japanese_text_stripping() {
         // Priority 2: Strip Japanese/Chinese characters (actress names, descriptions)
         // Space + Japanese should be stripped
-        assert_eq!(get_number("hnd-809 神宮寺ナオ.mp4", None).unwrap(), "HND-809");
-        assert_eq!(get_number("ABC-123 波多野結衣.mp4", None).unwrap(), "ABC-123");
-        assert_eq!(get_number("SSIS-001 明日花キララ.mp4", None).unwrap(), "SSIS-001");
+        assert_eq!(
+            get_number("hnd-809 神宮寺ナオ.mp4", None).unwrap(),
+            "HND-809"
+        );
+        assert_eq!(
+            get_number("ABC-123 波多野結衣.mp4", None).unwrap(),
+            "ABC-123"
+        );
+        assert_eq!(
+            get_number("SSIS-001 明日花キララ.mp4", None).unwrap(),
+            "SSIS-001"
+        );
         // Full-width space (　) should also be handled
-        assert_eq!(get_number("IPX-456　桜空もも.mp4", None).unwrap(), "IPX-456");
+        assert_eq!(
+            get_number("IPX-456　桜空もも.mp4", None).unwrap(),
+            "IPX-456"
+        );
     }
 
     #[test]
     fn test_quality_markers_mid_string() {
         // Priority 3: Strip quality markers that appear after dashes mid-string
-        assert_eq!(get_number("DSAMBD-18-H265-1080P.mp4", None).unwrap(), "DSAMBD-18");
+        assert_eq!(
+            get_number("DSAMBD-18-H265-1080P.mp4", None).unwrap(),
+            "DSAMBD-18"
+        );
         assert_eq!(get_number("ABC-123-FHD-720P.mp4", None).unwrap(), "ABC-123");
         assert_eq!(get_number("XYZ-456-X264-HD.mkv", None).unwrap(), "XYZ-456");
-        assert_eq!(get_number("TEST-001-HEVC-4K.mp4", None).unwrap(), "TEST-001");
+        assert_eq!(
+            get_number("TEST-001-HEVC-4K.mp4", None).unwrap(),
+            "TEST-001"
+        );
     }
 
     // ===== Dual ID Conversion Tests (Phase 1) =====
@@ -1633,7 +1897,10 @@ mod tests {
         let result = parse_number("tokyo-hot-n1234.mp4", None).unwrap();
         assert_eq!(result.id, "n1234");
         assert_eq!(result.content_id, "n1234");
-        assert_eq!(result.attributes.special_site, Some("tokyo-hot".to_string()));
+        assert_eq!(
+            result.attributes.special_site,
+            Some("tokyo-hot".to_string())
+        );
     }
 
     #[test]
@@ -1726,7 +1993,10 @@ mod tests {
         // get_number() should still work exactly as before but use parse_number() internally
         assert_eq!(get_number("SSIS-123.mp4", None).unwrap(), "SSIS-123");
         assert_eq!(get_number("ABP-001.avi", None).unwrap(), "ABP-001");
-        assert_eq!(get_number("FC2-PPV-1234567.mp4", None).unwrap(), "FC2-PPV-1234567");
+        assert_eq!(
+            get_number("FC2-PPV-1234567.mp4", None).unwrap(),
+            "FC2-PPV-1234567"
+        );
 
         // Custom regex still works
         let custom = r"CUSTOM-\d+";
@@ -1833,9 +2103,15 @@ mod tests {
         let mut config = ParserConfig::default();
         config.removal_strings = vec!["UNWANTED".to_string(), "-JUNK".to_string()];
 
-        assert_eq!(clean_filename("UNWANTEDSSIS-123", Some(&config)), "SSIS-123");
+        assert_eq!(
+            clean_filename("UNWANTEDSSIS-123", Some(&config)),
+            "SSIS-123"
+        );
         assert_eq!(clean_filename("ABP-456-JUNK", Some(&config)), "ABP-456");
-        assert_eq!(clean_filename("UNWANTEDIPM-789-JUNK", Some(&config)), "IPM-789");
+        assert_eq!(
+            clean_filename("UNWANTEDIPM-789-JUNK", Some(&config)),
+            "IPM-789"
+        );
     }
 
     #[test]
@@ -1970,7 +2246,7 @@ mod tests {
 
         let result3 = parse_number("IPX-789-D.avi", None).unwrap();
         assert_eq!(result3.id, "IPX-789");
-        assert_eq!(result3.part_number, Some(4));  // D = 4 (C=3 reserved for attributes)
+        assert_eq!(result3.part_number, Some(4)); // D = 4 (C=3 reserved for attributes)
     }
 
     #[test]
@@ -1995,7 +2271,10 @@ mod tests {
         assert_eq!(get_number("ABP-456-cd2.mp4", None).unwrap(), "ABP-456");
         assert_eq!(get_number("IPX-789-part3.mp4", None).unwrap(), "IPX-789");
         assert_eq!(get_number("MIDE-001-pt10.mp4", None).unwrap(), "MIDE-001");
-        assert_eq!(get_number("STARS-100-disc15.mp4", None).unwrap(), "STARS-100");
+        assert_eq!(
+            get_number("STARS-100-disc15.mp4", None).unwrap(),
+            "STARS-100"
+        );
     }
 
     #[test]
@@ -2108,8 +2387,7 @@ mod tests {
     #[test]
     fn test_parser_config_uncensored_prefixes() {
         // Test uncensored prefixes configuration
-        let config = ParserConfig::new()
-            .with_uncensored_prefixes("CUSTOM,FOO,BAR");
+        let config = ParserConfig::new().with_uncensored_prefixes("CUSTOM,FOO,BAR");
 
         assert_eq!(config.uncensored_prefixes, "CUSTOM,FOO,BAR");
     }
@@ -2119,7 +2397,7 @@ mod tests {
         // Test custom regex with non-default capture group indices
         let mut config = ParserConfig::new();
         config.custom_regexs = vec![r"PREFIX-([A-Z]+-\d+)-SUFFIX".to_string()];
-        config.regex_id_match = 1;  // First capture group
+        config.regex_id_match = 1; // First capture group
 
         let result = parse_number("PREFIX-SSIS-123-SUFFIX.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "SSIS-123");
@@ -2133,7 +2411,7 @@ mod tests {
         config.custom_regexs = vec![r"([A-Z]+-\d+)[-_]VOL(\d+)".to_string()];
         config.regex_id_match = 1;
         config.regex_pt_match = 2;
-        config.strict_mode = false;  // Disable strict mode for this test
+        config.strict_mode = false; // Disable strict mode for this test
 
         let result = parse_number("SSIS-123-VOL2.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "SSIS-123");
@@ -2199,7 +2477,7 @@ mod tests {
         let config = ParserConfig::new()
             .with_custom_regex(r"SPECIAL-([A-Z]+-\d+)")
             .with_removal_string("UNWANTED")
-            .with_strict_mode(false)  // Disable strict for this test
+            .with_strict_mode(false) // Disable strict for this test
             .with_regex_id_match(1);
 
         // Should use custom regex to extract ID

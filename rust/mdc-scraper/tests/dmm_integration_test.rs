@@ -2,9 +2,9 @@
 //!
 //! Tests the DMM scraper with the dual ID system
 
-use mdc_scraper::{ScraperClient, ScraperConfig, ScraperRegistry};
 use mdc_scraper::scraper::Scraper;
 use mdc_scraper::scrapers::DmmScraper;
+use mdc_scraper::{ScraperClient, ScraperConfig, ScraperRegistry};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -61,7 +61,9 @@ fn test_dmm_content_id_examples() {
     for (display, expected_content) in test_cases {
         // In production, parse_number() would generate these
         println!("Display: {} → Content: {}", display, expected_content);
-        assert!(expected_content.chars().all(|c| c.is_lowercase() || c.is_numeric()));
+        assert!(expected_content
+            .chars()
+            .all(|c| c.is_lowercase() || c.is_numeric()));
     }
 }
 
@@ -88,7 +90,10 @@ async fn test_dmm_registry_priority() {
     registry.register(Arc::new(DmmScraper::new()));
 
     let sources = registry.available_sources();
-    assert!(sources.contains(&"dmm".to_string()), "DMM should be registered");
+    assert!(
+        sources.contains(&"dmm".to_string()),
+        "DMM should be registered"
+    );
 
     // When searching, DMM should be tried first
     // (In production, first successful scraper wins)
@@ -96,8 +101,8 @@ async fn test_dmm_registry_priority() {
 
 #[test]
 fn test_dmm_metadata_parsing_completeness() {
-    use scraper::Html;
     use mdc_scraper::scraper::Scraper;
+    use scraper::Html;
 
     let scraper = DmmScraper::new();
 
@@ -133,13 +138,19 @@ fn test_dmm_metadata_parsing_completeness() {
 
     let html = Html::parse_document(html_content);
     let metadata = scraper
-        .parse_metadata(&html, "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=ssis00123/")
+        .parse_metadata(
+            &html,
+            "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=ssis00123/",
+        )
         .unwrap();
 
     // Verify all critical fields are extracted
     assert!(!metadata.title.is_empty(), "Title should be extracted");
     assert!(!metadata.cover.is_empty(), "Cover should be extracted");
-    assert!(!metadata.release.is_empty(), "Release date should be extracted");
+    assert!(
+        !metadata.release.is_empty(),
+        "Release date should be extracted"
+    );
     assert!(!metadata.runtime.is_empty(), "Runtime should be extracted");
     assert!(!metadata.studio.is_empty(), "Studio should be extracted");
     assert!(!metadata.actor.is_empty(), "Actors should be extracted");

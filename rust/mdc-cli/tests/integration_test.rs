@@ -8,10 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use mdc_core::{
-    BatchProcessor, LinkMode, ProcessingMode, ProcessorConfig,
-    scanner, number_parser,
-};
+use mdc_core::{number_parser, scanner, BatchProcessor, LinkMode, ProcessingMode, ProcessorConfig};
 use serde_json::json;
 
 /// Helper to create test video files
@@ -26,7 +23,9 @@ fn create_test_files(temp_dir: &TempDir, filenames: &[&str]) -> Vec<PathBuf> {
 }
 
 /// Mock metadata provider for testing (with dual ID support)
-fn mock_metadata_provider() -> Arc<impl Fn(mdc_core::DualId) -> futures::future::Ready<Result<serde_json::Value>> + Send + Sync> {
+fn mock_metadata_provider(
+) -> Arc<impl Fn(mdc_core::DualId) -> futures::future::Ready<Result<serde_json::Value>> + Send + Sync>
+{
     Arc::new(|dual_id: mdc_core::DualId| {
         futures::future::ready(Ok(json!({
             "number": dual_id.display,
@@ -86,11 +85,7 @@ async fn test_organizing_mode_multiple_files() {
     let temp_output = TempDir::new().unwrap();
 
     // Create multiple test files
-    let files = create_test_files(&temp_input, &[
-        "ABC-001.mp4",
-        "ABC-002.mkv",
-        "XYZ-100.avi",
-    ]);
+    let files = create_test_files(&temp_input, &["ABC-001.mp4", "ABC-002.mkv", "XYZ-100.avi"]);
 
     let config = ProcessorConfig {
         mode: ProcessingMode::Organizing,
@@ -202,8 +197,13 @@ async fn test_custom_location_rule() {
     assert!(results[0].success);
 
     // Verify file is in studio subfolder
-    let expected_path = temp_output.path().join("Test Studio/MOVIE-001/MOVIE-001.mp4");
-    assert!(expected_path.exists(), "File should be in studio/number structure");
+    let expected_path = temp_output
+        .path()
+        .join("Test Studio/MOVIE-001/MOVIE-001.mp4");
+    assert!(
+        expected_path.exists(),
+        "File should be in studio/number structure"
+    );
 }
 
 #[tokio::test]
@@ -238,7 +238,10 @@ async fn test_chinese_subtitle_suffix() {
 
     // Verify -C suffix is preserved in output filename
     let expected_path = temp_output.path().join("TEST-001/TEST-001-C.mp4");
-    assert!(expected_path.exists(), "Chinese subtitle suffix should be preserved");
+    assert!(
+        expected_path.exists(),
+        "Chinese subtitle suffix should be preserved"
+    );
 }
 
 #[tokio::test]
@@ -247,10 +250,7 @@ async fn test_multi_part_files() {
     let temp_output = TempDir::new().unwrap();
 
     // Create multi-part files
-    let files = create_test_files(&temp_input, &[
-        "MOVIE-001-CD1.mp4",
-        "MOVIE-001-CD2.mp4",
-    ]);
+    let files = create_test_files(&temp_input, &["MOVIE-001-CD1.mp4", "MOVIE-001-CD2.mp4"]);
 
     let config = ProcessorConfig {
         mode: ProcessingMode::Organizing,
@@ -274,8 +274,14 @@ async fn test_multi_part_files() {
     assert_eq!(stats.succeeded, 2);
 
     // Verify both parts are in the same folder
-    assert!(temp_output.path().join("MOVIE-001/MOVIE-001-CD1.mp4").exists());
-    assert!(temp_output.path().join("MOVIE-001/MOVIE-001-CD2.mp4").exists());
+    assert!(temp_output
+        .path()
+        .join("MOVIE-001/MOVIE-001-CD1.mp4")
+        .exists());
+    assert!(temp_output
+        .path()
+        .join("MOVIE-001/MOVIE-001-CD2.mp4")
+        .exists());
 }
 
 #[tokio::test]
@@ -315,11 +321,17 @@ async fn test_skip_existing_files() {
     assert!(results[0].success);
 
     // Verify source file still exists (was skipped)
-    assert!(test_file.exists(), "Source should not be moved when skipping");
+    assert!(
+        test_file.exists(),
+        "Source should not be moved when skipping"
+    );
 
     // Verify existing file wasn't overwritten
     let content = fs::read_to_string(&existing_file).unwrap();
-    assert_eq!(content, "existing content", "Existing file should not be overwritten");
+    assert_eq!(
+        content, "existing content",
+        "Existing file should not be overwritten"
+    );
 }
 
 #[tokio::test]
@@ -356,8 +368,16 @@ async fn test_error_handling_invalid_number() {
     // If it failed to parse, verify error message
     if !results[0].success {
         assert!(
-            results[0].error.as_ref().unwrap().contains("Number parsing error") ||
-            results[0].error.as_ref().unwrap().contains("Metadata fetch error")
+            results[0]
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("Number parsing error")
+                || results[0]
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("Metadata fetch error")
         );
     }
 
@@ -395,7 +415,10 @@ async fn test_soft_link_mode() {
     assert!(results[0].success);
 
     // Original file should still exist (linked, not moved)
-    assert!(test_file.exists(), "Original file should exist with soft link");
+    assert!(
+        test_file.exists(),
+        "Original file should exist with soft link"
+    );
 
     // Linked file should exist
     let linked_file = temp_output.path().join("TEST-001/TEST-001.mp4");
@@ -403,7 +426,10 @@ async fn test_soft_link_mode() {
 
     // Verify it's actually a symlink
     let metadata = fs::symlink_metadata(&linked_file).unwrap();
-    assert!(metadata.file_type().is_symlink(), "Should be a symbolic link");
+    assert!(
+        metadata.file_type().is_symlink(),
+        "Should be a symbolic link"
+    );
 }
 
 #[tokio::test]
@@ -441,7 +467,10 @@ async fn test_subtitle_moving() {
 
     // Verify subtitle was moved along with video
     let moved_subtitle = temp_output.path().join("TEST-001/TEST-001.srt");
-    assert!(moved_subtitle.exists(), "Subtitle should be moved with video");
+    assert!(
+        moved_subtitle.exists(),
+        "Subtitle should be moved with video"
+    );
     assert!(!subtitle_file.exists(), "Original subtitle should be gone");
 }
 
@@ -542,7 +571,9 @@ async fn test_concurrent_processing() {
 
     // Verify all files were processed
     for i in 1..=10 {
-        let expected = temp_output.path().join(format!("TEST-{:03}/TEST-{:03}.mp4", i, i));
+        let expected = temp_output
+            .path()
+            .join(format!("TEST-{:03}/TEST-{:03}.mp4", i, i));
         assert!(expected.exists(), "File {} should exist", i);
     }
 }
@@ -568,7 +599,9 @@ async fn test_scanner_integration() {
 
     // Scan directory
     let media_types = vec!["mp4", "mkv", "avi"];
-    let found_files = scanner::scan_directory(temp_dir.path(), &media_types).await.unwrap();
+    let found_files = scanner::scan_directory(temp_dir.path(), &media_types)
+        .await
+        .unwrap();
 
     // Should find 4 video files
     assert_eq!(found_files.len(), 4);
@@ -592,7 +625,7 @@ fn test_number_parser_integration() {
         ("ABC-123-C.mkv", "ABC-123"),
         ("XYZ-999-U.avi", "XYZ-999"),
         ("MOVIE-001.mp4", "MOVIE-001"),
-        ("FC2-PPV-1234567.mp4", "FC2-PPV-1234567"),  // Rust parser keeps the full FC2-PPV format
+        ("FC2-PPV-1234567.mp4", "FC2-PPV-1234567"), // Rust parser keeps the full FC2-PPV format
     ];
 
     for (filename, expected) in test_cases {
