@@ -3,9 +3,79 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::metadata::MovieMetadata;
 use crate::scraper::{IdFormat, Scraper, ScraperConfig};
+
+/// Result of a single scraper attempt
+#[derive(Debug, Clone)]
+pub struct ScraperAttempt {
+    /// Scraper source name
+    pub source: String,
+
+    /// ID format used (Display or Content)
+    pub id_format: IdFormat,
+
+    /// ID value passed to scraper
+    pub id_value: String,
+
+    /// Outcome of the attempt
+    pub outcome: ScraperOutcome,
+
+    /// Duration of the attempt
+    pub duration: Duration,
+}
+
+/// Outcome of a scraper attempt
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScraperOutcome {
+    /// Successfully retrieved valid metadata
+    Success,
+
+    /// Scraper not found in registry
+    NotRegistered,
+
+    /// Network/HTTP error (with status code if available)
+    NetworkError {
+        message: String,
+        status_code: Option<u16>,
+    },
+
+    /// Page not found (404 or equivalent)
+    NotFound,
+
+    /// Page found but parsing failed
+    ParseError {
+        message: String,
+    },
+
+    /// Metadata retrieved but validation failed
+    InvalidMetadata {
+        reason: String,
+    },
+
+    /// Generic error
+    Error {
+        message: String,
+    },
+}
+
+/// Complete scraping attempt result with diagnostics
+#[derive(Debug, Clone)]
+pub struct ScrapingAttemptResult {
+    /// Display ID used
+    pub display_id: String,
+
+    /// Content ID used
+    pub content_id: String,
+
+    /// All scraper attempts made
+    pub attempts: Vec<ScraperAttempt>,
+
+    /// Final metadata if successful
+    pub metadata: Option<MovieMetadata>,
+}
 
 /// Registry of available scrapers
 pub struct ScraperRegistry {
@@ -63,7 +133,7 @@ impl ScraperRegistry {
         self.search_with_ids(number, number, sources, config).await
     }
 
-    /// Search for metadata with dual ID support
+    /// Search for metadata with dual ID support and detailed diagnostics
     ///
     /// # Arguments
     /// * `display_id` - Human-readable ID (e.g., "SSIS-123")
@@ -71,17 +141,19 @@ impl ScraperRegistry {
     /// * `sources` - Optional list of sources (uses defaults if None)
     /// * `config` - Scraper configuration
     ///
-    /// Each scraper will receive the ID format it prefers (display or content).
-    pub async fn search_with_ids(
+    /// Returns detailed information about all scraper attempts, including timing and failure reasons.
+    pub async fn search_with_ids_detailed(
         &self,
         display_id: &str,
         content_id: &str,
         sources: Option<Vec<String>>,
         config: &ScraperConfig,
-    ) -> Result<Option<MovieMetadata>> {
+    ) -> Result<ScrapingAttemptResult> {
+        let mut attempts = Vec::new();
+        let mut final_metadata = None;
+
         // Determine sources to try
         let sources_to_try = if let Some(ref url) = config.specified_url {
-            // If specific URL provided, try to infer source or use all
             vec![self
                 .infer_source_from_url(url)
                 .unwrap_or_else(|| "unknown".to_string())]
@@ -93,11 +165,18 @@ impl ScraperRegistry {
 
         if sources_to_try.is_empty() {
             tracing::warn!("No valid sources to search");
-            return Ok(None);
+            return Ok(ScrapingAttemptResult {
+                display_id: display_id.to_string(),
+                content_id: content_id.to_string(),
+                attempts,
+                metadata: None,
+            });
         }
 
-        // Try each source
+        // Try each source and track attempts
         for source in sources_to_try {
+            let start_time = Instant::now();
+
             if config.debug {
                 tracing::debug!("Trying source: {}", source);
             }
@@ -108,12 +187,21 @@ impl ScraperRegistry {
                     if config.debug {
                         tracing::warn!("Source not found: {}", source);
                     }
+                    // Record not registered attempt
+                    attempts.push(ScraperAttempt {
+                        source: source.clone(),
+                        id_format: IdFormat::Display,
+                        id_value: display_id.to_string(),
+                        outcome: ScraperOutcome::NotRegistered,
+                        duration: start_time.elapsed(),
+                    });
                     continue;
                 }
             };
 
             // Select the appropriate ID format based on scraper preference
-            let scraper_id = match scraper.preferred_id_format() {
+            let id_format = scraper.preferred_id_format();
+            let scraper_id = match id_format {
                 IdFormat::Display => display_id,
                 IdFormat::Content => content_id,
             };
@@ -121,13 +209,14 @@ impl ScraperRegistry {
             if config.debug {
                 tracing::debug!(
                     "Using ID format {:?} for scraper '{}': {}",
-                    scraper.preferred_id_format(),
+                    id_format,
                     source,
                     scraper_id
                 );
             }
 
-            match scraper.scrape(scraper_id, config).await {
+            // Attempt to scrape
+            let outcome = match scraper.scrape(scraper_id, config).await {
                 Ok(metadata) => {
                     if metadata.is_valid() {
                         if config.debug {
@@ -137,10 +226,14 @@ impl ScraperRegistry {
                                 source
                             );
                         }
-                        return Ok(Some(metadata));
+                        final_metadata = Some(metadata.clone());
+                        ScraperOutcome::Success
                     } else {
                         if config.debug {
                             tracing::warn!("Invalid metadata from source '{}'", source);
+                        }
+                        ScraperOutcome::InvalidMetadata {
+                            reason: "Metadata validation failed".to_string(),
                         }
                     }
                 }
@@ -148,19 +241,113 @@ impl ScraperRegistry {
                     if config.debug {
                         tracing::warn!("Error scraping from '{}': {}", source, e);
                     }
+                    Self::categorize_error(&e)
                 }
+            };
+
+            // Record the attempt
+            attempts.push(ScraperAttempt {
+                source: source.clone(),
+                id_format,
+                id_value: scraper_id.to_string(),
+                outcome: outcome.clone(),
+                duration: start_time.elapsed(),
+            });
+
+            // Stop if we found valid metadata
+            if matches!(outcome, ScraperOutcome::Success) {
+                break;
             }
         }
 
-        // No valid metadata found
-        if config.debug {
+        // Log if no metadata found
+        if final_metadata.is_none() && config.debug {
             tracing::warn!(
                 "No metadata found for [{}]/[{}] in any source",
                 display_id,
                 content_id
             );
         }
-        Ok(None)
+
+        Ok(ScrapingAttemptResult {
+            display_id: display_id.to_string(),
+            content_id: content_id.to_string(),
+            attempts,
+            metadata: final_metadata,
+        })
+    }
+
+    /// Search for metadata with dual ID support
+    ///
+    /// # Arguments
+    /// * `display_id` - Human-readable ID (e.g., "SSIS-123")
+    /// * `content_id` - API format ID (e.g., "ssis00123")
+    /// * `sources` - Optional list of sources (uses defaults if None)
+    /// * `config` - Scraper configuration
+    ///
+    /// Each scraper will receive the ID format it prefers (display or content).
+    ///
+    /// Note: This is a simplified version that only returns metadata. For detailed
+    /// diagnostics, use `search_with_ids_detailed()`.
+    pub async fn search_with_ids(
+        &self,
+        display_id: &str,
+        content_id: &str,
+        sources: Option<Vec<String>>,
+        config: &ScraperConfig,
+    ) -> Result<Option<MovieMetadata>> {
+        // Call detailed version and extract just the metadata
+        let result = self.search_with_ids_detailed(display_id, content_id, sources, config).await?;
+        Ok(result.metadata)
+    }
+
+    /// Categorize an error into a specific outcome
+    fn categorize_error(error: &anyhow::Error) -> ScraperOutcome {
+        let error_msg = error.to_string().to_lowercase();
+
+        // Check for 404/not found
+        if error_msg.contains("404") || error_msg.contains("not found") || error_msg.contains("page not found") {
+            return ScraperOutcome::NotFound;
+        }
+
+        // Check for network errors
+        if error_msg.contains("timeout")
+            || error_msg.contains("connection")
+            || error_msg.contains("network")
+            || error_msg.contains("dns")
+            || error_msg.contains("refused")
+            || error_msg.contains("unreachable") {
+            // Try to extract status code
+            let status_code = Self::extract_status_code(&error_msg);
+            return ScraperOutcome::NetworkError {
+                message: error.to_string(),
+                status_code,
+            };
+        }
+
+        // Check for parse errors
+        if error_msg.contains("parse")
+            || error_msg.contains("missing field")
+            || error_msg.contains("missing required")
+            || error_msg.contains("failed to extract") {
+            return ScraperOutcome::ParseError {
+                message: error.to_string(),
+            };
+        }
+
+        // Default to generic error
+        ScraperOutcome::Error {
+            message: error.to_string(),
+        }
+    }
+
+    /// Try to extract HTTP status code from error message
+    fn extract_status_code(error_msg: &str) -> Option<u16> {
+        // Look for patterns like "404", "500", etc.
+        let re = regex::Regex::new(r"\b([45]\d{2})\b").ok()?;
+        re.captures(error_msg)
+            .and_then(|cap| cap.get(1))
+            .and_then(|m| m.as_str().parse::<u16>().ok())
     }
 
     /// Validate and filter sources list
