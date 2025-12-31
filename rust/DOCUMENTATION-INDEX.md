@@ -9,8 +9,8 @@ Complete guide to all documentation.
 This project has **comprehensive documentation** for all users:
 
 ```
-Total Documentation: 8 files, ~10,000 lines
-Coverage: Installation → Usage → Troubleshooting → Development
+Total Documentation: 12 files, ~13,000+ lines
+Coverage: Installation → Usage → Cookie Setup → Troubleshooting → Development
 Languages: English
 Platforms: Windows, Linux, macOS
 ```
@@ -95,6 +95,28 @@ Platforms: Windows, Linux, macOS
 
 ---
 
+### Cookie Configuration
+
+**[COOKIE-CONFIGURATION.md](COOKIE-CONFIGURATION.md)** - Cookie setup for JAV scrapers
+- What cookies are needed and why
+- Step-by-step browser cookie extraction
+- Configuration file setup
+- Troubleshooting authentication issues
+- **Audience**: Users experiencing 403 errors or Cloudflare blocks
+- **Read time**: 15-20 minutes
+
+**[COOKIE-TESTER-README.md](COOKIE-TESTER-README.md)** - Cookie testing tool
+- Quick start guide for test_cookies.py
+- Verifying cookie configuration before scraping
+- Understanding test results
+- Troubleshooting failed authentication
+- Security best practices
+- **Audience**: Users setting up cookies for the first time
+- **Read time**: 10-15 minutes
+- **Tool**: test_cookies.py (Python script)
+
+---
+
 ## 🔧 Development Documentation
 
 ### Project Status
@@ -121,6 +143,18 @@ Platforms: Windows, Linux, macOS
 - Performance metrics
 - **Audience**: Project stakeholders, team leads
 - **Read time**: 10-15 minutes
+
+---
+
+### Integration Plans
+
+**[JAVINIZER-INTEGRATION-PLAN.md](JAVINIZER-INTEGRATION-PLAN.md)** - Javinizer feature integration
+- 8-phase integration plan (100% complete)
+- Parser enhancements and dual ID system
+- New scraper implementations (DMM, R18Dev, JavDB, Mgstage, Jav321)
+- Test coverage and performance improvements
+- **Audience**: Developers, contributors
+- **Read time**: 30-45 minutes
 
 ---
 
@@ -171,13 +205,17 @@ cargo test --workspace
 | File | Lines | Purpose |
 |------|-------|---------|
 | USER-GUIDE.md | ~3,000 | Complete reference |
+| JAVINIZER-INTEGRATION-PLAN.md | ~2,200 | Integration plan |
 | WINDOWS-GUIDE.md | ~1,500 | Windows-specific |
 | TROUBLESHOOTING.md | ~1,800 | Problem solving |
 | COMPLETE-SUMMARY.md | ~900 | Project summary |
 | QUICKSTART.md | ~800 | Quick start |
+| COOKIE-TESTER-README.md | ~380 | Cookie testing tool |
+| COOKIE-CONFIGURATION.md | ~450 | Cookie setup |
 | STATUS.md | ~350 | Status tracking |
 | README.md | ~450 | Main docs |
-| **Total** | **~9,000** | Full documentation |
+| DOCUMENTATION-INDEX.md | ~400 | This index |
+| **Total** | **~13,000+** | Full documentation |
 
 ---
 
@@ -233,6 +271,9 @@ cargo test --workspace
 ### "Something isn't working"
 → **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
 
+### "I'm getting 403 errors or Cloudflare blocks"
+→ **[COOKIE-CONFIGURATION.md](COOKIE-CONFIGURATION.md)** + **[COOKIE-TESTER-README.md](COOKIE-TESTER-README.md)**
+
 ### "I want to know what's implemented"
 → **[STATUS.md](STATUS.md)**
 
@@ -251,8 +292,8 @@ cargo test --workspace
 
 ### Version Information
 
-- **Documentation Version**: 1.0
-- **Last Updated**: 2025-12-27
+- **Documentation Version**: 1.1
+- **Last Updated**: 2025-12-31
 - **MDC Version**: 0.1.0 (Rust)
 - **Status**: Complete and current
 
@@ -382,25 +423,29 @@ All documents are Markdown with:
 
 ```
 rust/
-├── QUICKSTART.md              # 5-minute quick start
-├── WINDOWS-GUIDE.md           # Complete Windows guide
-├── USER-GUIDE.md              # Full user manual
-├── TROUBLESHOOTING.md         # Problem solving
-├── README.md                  # Main documentation
-├── STATUS.md                  # Development status
-├── COMPLETE-SUMMARY.md        # Achievement summary
-├── DOCUMENTATION-INDEX.md     # This file
-├── build-windows.bat          # Windows build script
-├── build-windows.ps1          # PowerShell build script
-└── run-example.bat            # Example runner
+├── QUICKSTART.md                  # 5-minute quick start
+├── WINDOWS-GUIDE.md               # Complete Windows guide
+├── USER-GUIDE.md                  # Full user manual
+├── TROUBLESHOOTING.md             # Problem solving
+├── COOKIE-CONFIGURATION.md        # Cookie setup guide
+├── COOKIE-TESTER-README.md        # Cookie testing tool docs
+├── JAVINIZER-INTEGRATION-PLAN.md  # Integration plan & progress
+├── README.md                      # Main documentation
+├── STATUS.md                      # Development status
+├── COMPLETE-SUMMARY.md            # Achievement summary
+├── DOCUMENTATION-INDEX.md         # This file
+├── test_cookies.py                # Cookie testing utility
+├── build-windows.bat              # Windows build script
+├── build-windows.ps1              # PowerShell build script
+└── run-example.bat                # Example runner
 ```
 
-**Total**: 11 documentation files + 3 build scripts
+**Total**: 11 documentation files + 1 utility script + 3 build scripts
 
 ---
 
-**Documentation Index Version**: 1.0
-**Last Updated**: 2025-12-27
-**Coverage**: 100% of MDC features
+**Documentation Index Version**: 1.1
+**Last Updated**: 2025-12-31
+**Coverage**: 100% of MDC features (including cookie authentication)
 
 *Everything you need to know is documented!* 📖
