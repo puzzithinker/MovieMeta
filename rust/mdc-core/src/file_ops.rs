@@ -259,9 +259,9 @@ pub fn sanitize_filename(name: &str) -> String {
     // Trim whitespace and dots from ends
     result = result.trim().trim_end_matches('.').to_string();
 
-    // Limit length to avoid filesystem issues
-    if result.len() > 200 {
-        result.truncate(200);
+    // Limit length to avoid filesystem issues (character-aware for UTF-8 safety)
+    if result.chars().count() > 200 {
+        result = result.chars().take(200).collect();
     }
 
     result
@@ -370,6 +370,14 @@ mod tests {
         let long_name = "a".repeat(250);
         let sanitized = sanitize_filename(&long_name);
         assert!(sanitized.len() <= 200);
+
+        // Test length limiting with multi-byte UTF-8 characters (Japanese)
+        // Each Japanese character is 3 bytes in UTF-8
+        let japanese_name = "日本語のタイトル".repeat(30); // Creates a string with 210 Japanese chars
+        let sanitized = sanitize_filename(&japanese_name);
+        assert!(sanitized.chars().count() <= 200);
+        // Should not panic on character boundary
+        assert!(!sanitized.is_empty());
     }
 
     #[test]
