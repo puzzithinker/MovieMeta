@@ -748,9 +748,11 @@ pub fn insert_hyphens(s: &str) -> String {
 /// ```
 pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     // Pattern 1: With separator: ABC-123-A, XYZ_456_B
-    // Match letter suffixes A-Y (excluding Z which is a special marker)
-    // Also EXCLUDE C and U when alone, as they're attribute markers
-    let re = Regex::new(r"^(.+?)[-_]([ABD-TVWXY])$").unwrap(); // Excludes C, U, Z
+    // Match letter suffixes A-Y (excluding only U and Z)
+    // INCLUDE C now - it will be used for disc suffixes AND can still mark Chinese subs
+    // U is excluded as it's only for uncensored attribute
+    // Z is excluded as it's a special marker
+    let re = Regex::new(r"^(.+?)[-_]([A-TV-Y])$").unwrap(); // A-T, V-Y (excludes U, Z)
 
     if let Some(caps) = re.captures(id) {
         let base_id = caps[1].to_string();
@@ -763,10 +765,10 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
         return (base_id, Some(part_num));
     }
 
-    // Pattern 2: Without separator (directly attached): ABC123A, AVOP212A
+    // Pattern 2: Without separator (directly attached): ABC123A, AVOP212A, IPZZ077C
     // Only match if ID ends with digit+letter (to avoid false positives)
     // This handles cases like "AVOP-212A" → "AVOP-212" + part 1
-    let re_attached = Regex::new(r"^(.+\d)([ABD-TVWXY])$").unwrap();
+    let re_attached = Regex::new(r"^(.+\d)([A-TV-Y])$").unwrap(); // A-T, V-Y (excludes U, Z)
     if let Some(caps) = re_attached.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
@@ -777,7 +779,7 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     }
 
     // Pattern 3: Lowercase with separator
-    let re_lower = Regex::new(r"^(.+?)[-_]([abd-tvwxy])$").unwrap();
+    let re_lower = Regex::new(r"^(.+?)[-_]([a-tv-y])$").unwrap(); // Lowercase A-T, V-Y
     if let Some(caps) = re_lower.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
@@ -789,7 +791,7 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     }
 
     // Pattern 4: Lowercase directly attached
-    let re_lower_attached = Regex::new(r"^(.+\d)([abd-tvwxy])$").unwrap();
+    let re_lower_attached = Regex::new(r"^(.+\d)([a-tv-y])$").unwrap(); // Lowercase A-T, V-Y
     if let Some(caps) = re_lower_attached.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
