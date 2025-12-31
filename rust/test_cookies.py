@@ -44,7 +44,7 @@ class CookieTester:
     # Test URLs for each domain
     TEST_URLS = {
         "javdb.com": "https://javdb.com/search?q=SSIS-001",
-        "javbus.com": "https://www.javbus.com/SSIS-001",
+        "www.javbus.com": "https://www.javbus.com/SSIS-001",
         "javlibrary.com": "https://www.javlibrary.com/en/?v=javlissis001",
         "avmoo.com": "https://avmoo.com/en/search/SSIS-001",
         "mgstage.com": "https://www.mgstage.com/search/cSearch.php?search_word=SIRO-123",
@@ -53,7 +53,7 @@ class CookieTester:
     # Success indicators (HTML content that proves access worked)
     SUCCESS_INDICATORS = {
         "javdb.com": ["search-result", "movie-list", "video-detail"],
-        "javbus.com": ["movie", "info", "star"],
+        "www.javbus.com": ["movie", "info", "star"],
         "javlibrary.com": ["video_id", "video_title", "video_info"],
         "avmoo.com": ["movie", "info"],
         "mgstage.com": ["product_detail", "search_result"],
