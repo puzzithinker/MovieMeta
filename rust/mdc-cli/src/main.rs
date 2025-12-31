@@ -250,9 +250,13 @@ struct Cli {
     #[clap(long, requires = "delete_invalid")]
     dry_run: bool,
 
-    /// Download cover images and fanart (poster, fanart.jpg)
-    #[clap(long)]
+    /// Download cover images and fanart (poster, fanart.jpg) [default: true]
+    #[clap(long, default_value_t = true, action = clap::ArgAction::Set)]
     download_images: bool,
+
+    /// Skip downloading images (negates --download-images)
+    #[clap(long, conflicts_with = "download_images")]
+    no_download_images: bool,
 
     /// Show version information
     #[clap(short = 'v', long)]
@@ -363,7 +367,7 @@ async fn main() -> Result<()> {
         naming_rule,
         max_title_len: 50,
         skip_existing: false,
-        download_images: cli.download_images,
+        download_images: cli.download_images && !cli.no_download_images,
         create_nfo: true,
         move_subtitles: true,
     };
