@@ -207,11 +207,11 @@ struct Cli {
     output: Option<PathBuf>,
 
     /// Location rule (e.g., "actor/number", "studio/number")
-    #[clap(long, value_name = "RULE", default_value = "number")]
+    #[clap(long, value_name = "RULE", default_value = "actor/year/number-title")]
     location_rule: String,
 
     /// Naming rule (e.g., "number", "number-title")
-    #[clap(long, value_name = "RULE", default_value = "number")]
+    #[clap(long, value_name = "RULE", default_value = "number-title")]
     naming_rule: String,
 
     /// Organization preset (jav, jav-simple, studio, simple)
