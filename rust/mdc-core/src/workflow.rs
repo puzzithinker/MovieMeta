@@ -1,7 +1,7 @@
 //! Main processing workflow orchestration
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::file_ops::{
     execute_file_operation, get_video_extension, move_subtitles, sanitize_filename,
@@ -58,6 +58,167 @@ impl Default for ProcessorConfig {
             move_subtitles: true,
         }
     }
+}
+
+/// Download an image from a URL and save it to a file
+async fn download_image(url: &str, dest_path: &Path, cookie_header: Option<&str>) -> Result<()> {
+    // Create HTTP client with proper headers to bypass hotlink protection
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build()?;
+
+    // Extract domain for Referer header
+    let referer = url::Url::parse(url)
+        .ok()
+        .and_then(|u| {
+            u.host_str().map(|host| {
+                format!("{}://{}/", u.scheme(), host)
+            })
+        })
+        .unwrap_or_else(|| "https://www.javbus.com/".to_string());
+
+    // Build request with proper headers
+    let mut request = client
+        .get(url)
+        .header("Referer", &referer)
+        .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+
+    // Add cookies if provided
+    if let Some(cookies) = cookie_header {
+        request = request.header("Cookie", cookies);
+    }
+
+    // Download image
+    let response = request
+        .send()
+        .await
+        .with_context(|| format!("Failed to download image from {}", url))?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "HTTP error {}: {}",
+            response.status(),
+            url
+        ));
+    }
+
+    let bytes = response.bytes().await
+        .with_context(|| format!("Failed to read image bytes from {}", url))?;
+
+    // Save to file
+    std::fs::write(dest_path, &bytes)
+        .with_context(|| format!("Failed to write image to {:?}", dest_path))?;
+
+    Ok(())
+}
+
+/// Download images (cover, fanart, poster) for a movie
+async fn download_movie_images(
+    metadata: &serde_json::Value,
+    dest_folder: &Path,
+    base_name: &str,
+) -> Result<()> {
+    // Extract image URLs from metadata
+    // MovieMetadata struct has: cover (main fanart), cover_small (poster), extrafanart (array)
+    let cover_url = metadata["cover"].as_str();
+    let cover_small_url = metadata["cover_small"].as_str();
+
+    tracing::debug!("Image URLs - cover: {:?}, cover_small: {:?}", cover_url, cover_small_url);
+
+    // Try to load cookies from config for authenticated downloads
+    let cookie_header = load_cookies_for_domain(
+        cover_url.and_then(|u| extract_domain(u))
+            .or_else(|| cover_small_url.and_then(|u| extract_domain(u)))
+    );
+
+    // Download main cover as fanart (background image for media players)
+    if let Some(url) = cover_url {
+        if !url.is_empty() {
+            let fanart_path = dest_folder.join(format!("{}-fanart.jpg", base_name));
+            tracing::info!("Downloading fanart from: {}", url);
+            if let Err(e) = download_image(url, &fanart_path, cookie_header.as_deref()).await {
+                tracing::warn!("Failed to download fanart from {}: {}", url, e);
+            } else {
+                tracing::info!("Downloaded fanart: {:?}", fanart_path);
+            }
+        }
+    }
+
+    // Download small cover as poster (main poster image)
+    if let Some(url) = cover_small_url {
+        if !url.is_empty() {
+            let poster_path = dest_folder.join(format!("{}-poster.jpg", base_name));
+            tracing::info!("Downloading poster from: {}", url);
+            if let Err(e) = download_image(url, &poster_path, cookie_header.as_deref()).await {
+                tracing::warn!("Failed to download poster from {}: {}", url, e);
+            } else {
+                tracing::info!("Downloaded poster: {:?}", poster_path);
+            }
+        }
+    }
+
+    // If no cover_small, use main cover as poster too
+    if cover_small_url.is_none() || cover_small_url.unwrap_or("").is_empty() {
+        if let Some(url) = cover_url {
+            if !url.is_empty() {
+                let poster_path = dest_folder.join(format!("{}-poster.jpg", base_name));
+                tracing::info!("Using main cover as poster from: {}", url);
+                if let Err(e) = download_image(url, &poster_path, cookie_header.as_deref()).await {
+                    tracing::warn!("Failed to download poster from {}: {}", url, e);
+                } else {
+                    tracing::info!("Downloaded poster: {:?}", poster_path);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Extract domain from URL
+fn extract_domain(url: &str) -> Option<String> {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+}
+
+/// Load cookies for a domain from config.ini
+fn load_cookies_for_domain(domain: Option<String>) -> Option<String> {
+    let domain = domain?;
+
+    // Try to load config.ini
+    use std::path::PathBuf;
+    let config_paths = vec![
+        PathBuf::from("./config.ini"),
+        PathBuf::from("../config.ini"),
+        dirs::home_dir()?.join(".mdc/config.ini"),
+        dirs::home_dir()?.join(".config/mdc/config.ini"),
+    ];
+
+    for path in config_paths {
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                // Simple INI parsing for cookies section
+                if let Some(cookies_section) = content.split("[cookies]").nth(1) {
+                    for line in cookies_section.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('[') {
+                            break;
+                        }
+                        if let Some((key, value)) = line.split_once('=') {
+                            let key = key.trim();
+                            if key == &domain || key == domain.trim_start_matches("www.") {
+                                return Some(value.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Context for processing a single file
@@ -178,8 +339,19 @@ impl ProcessingContext {
             write_nfo(&nfo_path, &nfo_content)?;
         }
 
-        // TODO: Download images (requires image processing module integration)
-        // This would call mdc-image crate to download cover, fanart, etc.
+        // Download images if enabled
+        if self.config.download_images {
+            // Use tokio::task::block_in_place to run async code from sync context
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    download_movie_images(
+                        &self.metadata,
+                        &dest_folder,
+                        &base_name,
+                    ).await
+                })
+            })?;
+        }
 
         // Move/link the movie file
         execute_file_operation(&self.movie_path, &dest_path, self.config.link_mode)?;
@@ -254,8 +426,19 @@ impl ProcessingContext {
             write_nfo(&nfo_path, &nfo_content)?;
         }
 
-        // TODO: Download images to source folder
-        // This would call mdc-image crate to download cover, fanart, etc.
+        // Download images to source folder if enabled
+        if self.config.download_images {
+            // Use tokio::task::block_in_place to run async code from sync context
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    download_movie_images(
+                        &self.metadata,
+                        source_folder,
+                        &base_name,
+                    ).await
+                })
+            })?;
+        }
 
         tracing::info!(
             "Analysis complete (in-place): {}",

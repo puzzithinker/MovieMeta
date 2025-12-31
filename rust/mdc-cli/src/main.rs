@@ -250,6 +250,10 @@ struct Cli {
     #[clap(long, requires = "delete_invalid")]
     dry_run: bool,
 
+    /// Download cover images and fanart (poster, fanart.jpg)
+    #[clap(long)]
+    download_images: bool,
+
     /// Show version information
     #[clap(short = 'v', long)]
     version: bool,
@@ -359,7 +363,7 @@ async fn main() -> Result<()> {
         naming_rule,
         max_title_len: 50,
         skip_existing: false,
-        download_images: false, // TODO: Enable when image download is integrated
+        download_images: cli.download_images,
         create_nfo: true,
         move_subtitles: true,
     };
