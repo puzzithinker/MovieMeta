@@ -4,9 +4,17 @@ use anyhow::Result;
 use async_trait::async_trait;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
+use url::Url;
 
 use crate::client::ScraperClient;
 use crate::metadata::MovieMetadata;
+
+/// Extract domain from URL for cookie lookup
+fn extract_domain_from_url(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(|h| h.to_string()))
+}
 
 /// ID format preference for scrapers
 ///
@@ -170,12 +178,56 @@ pub trait Scraper: Send + Sync {
         Ok(metadata)
     }
 
+    /// Optional: Return the domain for cookie lookup
+    ///
+    /// If not provided, domain will be extracted from the URL automatically.
+    /// Override this for better performance or when domain differs from URL host.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// fn domain(&self) -> Option<&str> {
+    ///     Some("javbus.com")
+    /// }
+    /// ```
+    fn domain(&self) -> Option<&str> {
+        None
+    }
+
     /// Query the detail page URL for a given number
     async fn query_number_url(&self, number: &str) -> Result<String>;
 
     /// Fetch and parse HTML from URL
+    ///
+    /// Automatically uses cookies if available for the domain.
+    /// Domain is either explicitly provided via `domain()` or extracted from URL.
     async fn fetch_html(&self, url: &str, config: &ScraperConfig) -> Result<Html> {
-        let html_text = config.client.get(url).await?;
+        // Try to get cookies for this scraper's domain
+        let html_text = if let Some(domain) = self.domain() {
+            // Explicit domain provided by scraper
+            if let Some(cookie_header) = config.get_cookie_header(domain) {
+                if config.debug {
+                    tracing::debug!("[{}] Using cookies for {}", self.source(), domain);
+                }
+                config.client.get_with_cookies(url, Some(&cookie_header)).await?
+            } else {
+                config.client.get(url).await?
+            }
+        } else {
+            // Fallback: extract domain from URL
+            if let Some(domain) = extract_domain_from_url(url) {
+                if let Some(cookie_header) = config.get_cookie_header(&domain) {
+                    if config.debug {
+                        tracing::debug!("[{}] Using cookies for {} (auto-detected)", self.source(), domain);
+                    }
+                    config.client.get_with_cookies(url, Some(&cookie_header)).await?
+                } else {
+                    config.client.get(url).await?
+                }
+            } else {
+                config.client.get(url).await?
+            }
+        };
 
         // Check for 404 patterns
         if html_text.contains("<title>404 Page Not Found")
