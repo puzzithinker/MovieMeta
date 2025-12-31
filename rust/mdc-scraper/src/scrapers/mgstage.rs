@@ -284,17 +284,19 @@ impl MgstageScraper {
 
     /// Extract screenshots
     fn extract_screenshots(&self, html: &Html) -> Vec<String> {
-        let html_text = html.html();
-
-        // Pattern: class="sample_image" href="(.*.jpg)"
-        static SCREENSHOT_RE: OnceLock<Regex> = OnceLock::new();
-        let screenshot_re = SCREENSHOT_RE.get_or_init(|| {
-            Regex::new(r#"class="sample_image"\s+href="([^"]+\.jpg)""#).unwrap()
+        // Use CSS selector instead of regex for thread-safe parsing
+        static SCREENSHOT_SELECTOR: OnceLock<Selector> = OnceLock::new();
+        let screenshot_sel = SCREENSHOT_SELECTOR.get_or_init(|| {
+            Selector::parse("a.sample_image").unwrap()
         });
 
-        screenshot_re
-            .captures_iter(&html_text)
-            .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        html.select(screenshot_sel)
+            .filter_map(|elem| {
+                elem.value()
+                    .attr("href")
+                    .filter(|href| href.ends_with(".jpg"))
+                    .map(|href| href.to_string())
+            })
             .collect()
     }
 
