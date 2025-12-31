@@ -705,6 +705,13 @@ pub fn insert_hyphens(s: &str) -> String {
         return s.to_string();
     }
 
+    // Tokyo-Hot IDs should remain without hyphens (lowercase letter prefix + digits)
+    // Patterns: n1234, k5678, cz1234, red001, gedo123, se456
+    let tokyo_hot_re = Regex::new(r"^(?i)(cz|gedo|k|n|red|se)\d{2,4}$").unwrap();
+    if tokyo_hot_re.is_match(s) {
+        return s.to_string();
+    }
+
     // Pattern: ([A-Za-z]+)(\d+) → $1-$2
     // Insert hyphen between alphabetic prefix and numeric part
     let re = Regex::new(r"^([A-Za-z]+)(\d+)(.*)$").unwrap();
@@ -748,11 +755,10 @@ pub fn insert_hyphens(s: &str) -> String {
 /// ```
 pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     // Pattern 1: With separator: ABC-123-A, XYZ_456_B
-    // Match letter suffixes A-Y (excluding only U and Z)
-    // INCLUDE C now - it will be used for disc suffixes AND can still mark Chinese subs
-    // U is excluded as it's only for uncensored attribute
-    // Z is excluded as it's a special marker
-    let re = Regex::new(r"^(.+?)[-_]([A-TV-Y])$").unwrap(); // A-T, V-Y (excludes U, Z)
+    // Match letter suffixes, but EXCLUDE C when separated (C is reserved for Chinese subtitles)
+    // Also exclude U (uncensored) and Z (special marker)
+    // This allows "-A", "-B", "-D" through "-Y" but not "-C"
+    let re = Regex::new(r"^(.+?)[-_]([ABD-TV-Y])$").unwrap(); // A-B, D-T, V-Y (excludes C, U, Z)
 
     if let Some(caps) = re.captures(id) {
         let base_id = caps[1].to_string();
@@ -778,8 +784,8 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
         return (base_id, Some(part_num));
     }
 
-    // Pattern 3: Lowercase with separator
-    let re_lower = Regex::new(r"^(.+?)[-_]([a-tv-y])$").unwrap(); // Lowercase A-T, V-Y
+    // Pattern 3: Lowercase with separator (also excludes c for Chinese subtitles)
+    let re_lower = Regex::new(r"^(.+?)[-_]([abd-tv-y])$").unwrap(); // Lowercase a-b, d-t, v-y (excludes c, u, z)
     if let Some(caps) = re_lower.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
@@ -828,6 +834,20 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     // Handles both ASCII brackets [] and fullwidth brackets 【】 (common in Asian watermarks)
     if let Ok(re) = Regex::new(r"[\[【]([^\]】]+)[\]】]") {
         cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
+    // Strip common watermark patterns at the beginning
+    // Matches: "domain.com_", "domain.com@", "【domain.com】@", etc.
+    // This handles cases like: AVFAP.NET_okp-103.mp4, gg5.co@IPZZ-227-C.mp4
+    let watermark_patterns = [
+        r"^[\[\【]?[a-z0-9]+\.(com|net|org|co|tv|in|me|cc)[\]\】]?[@_\-\s]+",
+        r"^[a-z0-9]+\.(com|net|org|co|tv|in|me|cc)[@_\-\s]+",
+    ];
+
+    for pattern in &watermark_patterns {
+        if let Ok(re) = Regex::new(&format!("(?i){}", pattern)) {
+            cleaned = re.replace(&cleaned, "").to_string();
+        }
     }
 
     // Strip watermark domains in special formats: ses23.com, javhd.com, etc.
@@ -901,12 +921,13 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
         }
     }
 
-    // Strip quality markers that directly follow digits with NO separator (e.g., "CZBD-015FULLHD.mp4")
-    // This handles cases like 015FULLHD, 123HD, 456FHD, etc.
+    // Strip quality markers that directly follow digits (e.g., "CZBD-015FULLHD.mp4", "MVSD267.HD Semen")
+    // This handles cases like 015FULLHD, 123HD, 456FHD, and quality tags followed by spaces
+    // Updated to handle spaces after the quality tag (e.g., "MVSD267.HD Semen Eat.mkv")
     if let Ok(re) = Regex::new(
-        r"(?i)(\d)(FULLHD|1080P|720P|480P|H\.?265|H\.?264|X265|X264|HEVC|FHD|4K|UHD|HQ|HD)(\.|$)",
+        r"(?i)(\d)(\.?(?:FULLHD|1080P|720P|480P|H\.?265|H\.?264|X265|X264|HEVC|FHD|4K|UHD|HQ|HD))[\s\.]",
     ) {
-        cleaned = re.replace_all(&cleaned, "$1$3").to_string();
+        cleaned = re.replace_all(&cleaned, "$1 ").to_string();
     }
 
     // Strip quality markers that appear after dashes following numbers (after valid codes)
@@ -1031,8 +1052,24 @@ fn strip_suffix(file_number: &str) -> String {
         return result.replace('_', "-").to_lowercase();
     }
 
-    // Replace underscores with hyphens and uppercase
-    result.replace('_', "-").to_uppercase()
+    // Replace underscores with hyphens
+    result = result.replace('_', "-");
+
+    // Normalize multiple spaces to single space
+    // This handles cases like "WANZ-220  TSUBOMI" → "WANZ-220 TSUBOMI"
+    result = result.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // Remove trailing single-word names (actress names, descriptors)
+    // Only if they appear AFTER the valid ID format
+    // This handles cases like "WANZ-220 TSUBOMI" → "WANZ-220"
+    if let Ok(re) = Regex::new(r"(?i)^([A-Z]+-\d+)\s+[A-Z]+$") {
+        if let Some(caps) = re.captures(&result) {
+            result = caps[1].to_string();
+        }
+    }
+
+    // Uppercase the result
+    result.to_uppercase()
 }
 
 /// Check if filename contains a standard DVD ID format
@@ -1222,8 +1259,12 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
     // Strip the suffix to get clean ID
     let clean_id = strip_suffix(&id_without_part);
 
+    // Normalize ID by inserting hyphens if needed (e.g., "MVSD267" → "MVSD-267")
+    // This improves compatibility with metadata sources that expect standard format
+    let normalized_id = insert_hyphens(&clean_id);
+
     // Part number already extracted above
-    let final_id = clean_id;
+    let final_id = normalized_id;
 
     let content_id = convert_to_content_id(&final_id);
 
@@ -1233,6 +1274,44 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
         part_number,
         attributes: attrs,
     })
+}
+
+/// Clean up extracted ID by removing trailing Japanese text and English descriptions
+/// This handles cases like "AVOP-212-kawaii_10周年SPECIAL企画" → "AVOP-212"
+/// and "WANZ-220  TSUBOMI" → "WANZ-220"
+/// Note: Attribute suffixes (-C, -U, -UC) are handled by later processing stages
+fn cleanup_extracted_id(mut extracted_id: String) -> String {
+    // If we can extract a clean DVD ID (letters-digits), keep just that
+    // This handles "AVOP-212-kawaii_10周年" → "AVOP-212" by extracting the core pattern
+    if let Ok(re) = Regex::new(r"^([A-Z]{2,5}[-_]\d{2,5})[-_]") {
+        if let Some(caps) = re.captures(&extracted_id.to_uppercase()) {
+            // Found a standard ID pattern, check if there's junk after it
+            let core_id = caps[1].to_string();
+            let rest = &extracted_id[core_id.len()..];
+
+            // If the rest contains Japanese/Chinese or looks like junk, keep just the core ID
+            // Junk patterns:
+            // 1. Japanese text anywhere
+            // 2. Lowercase descriptions (kawaii, etc.)
+            // 3. Single-letter + delimiter + 2+ chars (C_GG5, C-GG5) - watermark artifacts
+            // Note: We preserve short suffixes like -UC, -C (2 chars) as they're likely attributes
+            if Regex::new(r"[\p{Han}\p{Hiragana}\p{Katakana}]").unwrap().is_match(rest)
+                || Regex::new(r"(?i)^[-_][a-z]{2,}").unwrap().is_match(rest)
+                || Regex::new(r"(?i)^[-_][A-Z][-_][A-Z0-9]{2,}").unwrap().is_match(rest) {
+                return core_id;
+            }
+        }
+    }
+
+    // Also remove trailing English descriptions after ID when separated by space/dot
+    // This handles cases like "WANZ-220  TSUBOMI" or "MVSD267.HD Semen"
+    // Only matches if there's a digit followed by spaces/dots and then 2+ English letters
+    if let Ok(re) = Regex::new(r"(?i)(\d)[\s\.]+[a-z]{2,}.*$") {
+        extracted_id = re.replace_all(&extracted_id, "$1").to_string();
+    }
+
+    // Trim any trailing/leading whitespace
+    extracted_id.trim().to_string()
 }
 
 /// Internal helper to extract number using existing logic
@@ -1249,7 +1328,7 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
 
         if let Some(dot_pos) = cleaned.find('.') {
             let before_dot = &cleaned[..dot_pos];
-            return Ok(before_dot.trim().to_string());
+            return Ok(cleanup_extracted_id(before_dot.trim().to_string()));
         }
     }
 
@@ -1284,7 +1363,7 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
                 let before_dot = &filename[..dot_pos];
                 if let Ok(re) = Regex::new(r"\w+") {
                     if let Some(m) = re.find(before_dot) {
-                        return Ok(m.as_str().to_string());
+                        return Ok(cleanup_extracted_id(m.as_str().to_string()));
                     }
                 }
             }
@@ -1306,7 +1385,7 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
             file_number
         };
 
-        return Ok(file_number.to_string());
+        return Ok(cleanup_extracted_id(file_number.to_string()));
     }
 
     // Handle filenames without - (FANZA CID, Western formats)
@@ -1315,7 +1394,7 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
     // Western format: xxx.YY.MM.DD
     if let Ok(re) = Regex::new(r"[a-zA-Z]+\.\d{2}\.\d{2}\.\d{2}") {
         if let Some(m) = re.find(cleaned_filepath) {
-            return Ok(m.as_str().to_string());
+            return Ok(cleanup_extracted_id(m.as_str().to_string()));
         }
     }
 
@@ -1323,12 +1402,12 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
     if let Some(dot_pos) = cleaned_filepath.rfind('.') {
         let before_dot = &cleaned_filepath[..dot_pos];
         let cleaned = before_dot.replace('_', "-");
-        return Ok(cleaned);
+        return Ok(cleanup_extracted_id(cleaned));
     }
 
     // If cleaned version has no extension, just return it
     if !cleaned_filepath.is_empty() {
-        return Ok(cleaned_filepath.replace('_', "-"));
+        return Ok(cleanup_extracted_id(cleaned_filepath.replace('_', "-")));
     }
 
     Err(anyhow!("Could not extract number from filename"))
@@ -1685,8 +1764,8 @@ mod tests {
     #[test]
     fn test_clean_domain_prefixes() {
         // Test domain.com- patterns
-        // Note: BEB077 without dash stays as BEB077 (no automatic dash insertion)
-        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB077");
+        // Note: BEB077 is automatically normalized to BEB-077 for better metadata matching
+        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB-077");
         assert_eq!(
             get_number("www.site.com-ABC-123.mp4", None).unwrap(),
             "ABC-123"
@@ -1740,7 +1819,7 @@ mod tests {
         assert_eq!(result1, "AVGL-012");
 
         // BEB077 without dash stays as BEB077
-        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB077");
+        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB-077");
         assert_eq!(get_number("CZBD-015FULLHD.mp4", None).unwrap(), "CZBD-015");
     }
 
@@ -2556,5 +2635,43 @@ mod tests {
         // Should use custom regex to extract ID
         let result = parse_number("SPECIAL-SSIS-123.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "SSIS-123");
+    }
+}
+
+#[cfg(test)]
+mod parser_fix_tests {
+    use super::*;
+
+    #[test]
+    fn test_parser_fixes() {
+        // Test 1: Japanese title should be stripped
+        let result1 = parse_number("AVOP-212-kawaii_10周年SPECIAL企画.mp4", None).unwrap();
+        assert_eq!(result1.id, "AVOP-212", "Japanese title not stripped");
+
+        // Test 2: Watermark domain with _
+        let result2 = parse_number("AVFAP.NET_okp-103.mp4", None).unwrap();
+        assert_eq!(result2.id, "OKP-103", "Watermark with _ not removed");
+
+        // Test 3: Watermark domain with @
+        let result3 = parse_number("gg5.co@IPZZ-227-C_GG5.mp4", None).unwrap();
+        assert_eq!(result3.id, "IPZZ-227", "Watermark with @ not removed");
+
+        // Test 4: Quality tag in middle with space
+        let result4 = parse_number("MVSD267.HD Semen Eat.mkv", None).unwrap();
+        assert_eq!(result4.id, "MVSD-267", "Quality tag with space not removed");
+
+        // Test 5: Double spaces and trailing name
+        let result5 = parse_number("WANZ-220  TSUBOMI.mkv", None).unwrap();
+        assert_eq!(result5.id, "WANZ-220", "Double spaces and name not handled");
+
+        // Test 6: Attached disc C suffix (should be extracted)
+        let result6 = parse_number("RCT515C.mp4", None).unwrap();
+        assert_eq!(result6.id, "RCT-515", "Attached disc C not extracted");
+        assert_eq!(result6.part_number, Some(3), "Disc C part number wrong");
+
+        // Test 7: Separated -C suffix (should NOT be extracted, it's Chinese subtitle)
+        let result7 = parse_number("IPZZ-227-C.mp4", None).unwrap();
+        assert_eq!(result7.id, "IPZZ-227", "-C suffix should be handled as Chinese subtitle");
+        assert!(result7.attributes.cn_sub, "Chinese subtitle not detected");
     }
 }
