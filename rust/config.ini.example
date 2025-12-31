@@ -1,84 +1,104 @@
 # MovieMeta Configuration File
-#
-# This file can be placed in one of the following locations:
-#  1. ./config.ini (current directory)
-#  2. ~/mdc.ini
-#  3. ~/.mdc.ini
-#  4. ~/.mdc/config.ini
-#  5. ~/.config/mdc/config.ini
-#
-# The first file found will be used.
-
-[common]
-# Processing mode: 1=Scraping (full metadata), 2=Organizing (move only), 3=Analysis (scrape in-place)
-main_mode = 1
-
-# Source folder containing video files
-source_folder = /path/to/source
-
-# Output folder for failed files
-failed_output_folder = /path/to/failed
-
-# Output folder for successfully processed files
-success_output_folder = /path/to/success
-
-# Link mode: 0=move files, 1=soft link, 2=hard link
-link_mode = 0
-
-# Scan hard links
-scan_hardlink = false
-
-# Move failed files to failed folder
-failed_move = true
-
-# Auto exit after completion
-auto_exit = false
-
-# Skip NFO if modified within N days (0=always generate)
-nfo_skip_days = 0
-
-[debug_mode]
-# Enable debug logging
-switch = false
-
-[priority]
-# Scraper priority order (comma-separated)
-# Available: dmm, r18dev, javdb, javlibrary, javbus, avmoo, fc2, tokyohot, tmdb, imdb
-website = dmm,r18dev,javdb,javlibrary,javbus
-
-[media]
-# Supported media file extensions
-media_type = .mp4,.avi,.rmvb,.wmv,.mov,.mkv,.flv,.ts,.webm,.iso,.mpg,.m4v
-
-# Supported subtitle file extensions
-sub_type = .smi,.srt,.idx,.sub,.sup,.psb,.ssa,.ass,.usf,.xss,.ssf,.rt,.lrc,.sbv,.vtt,.ttml
+# Copy this to ~/.mdc/config.ini and fill in your values
 
 # ============================================================================
-# COOKIE CONFIGURATION FOR SCRAPERS
+# Cookie Configuration
 # ============================================================================
-# Some scraper websites (like JavDB, JAVBus) may require authentication cookies
-# to bypass bot protection or access certain content.
-#
-# How to get cookies:
-#  1. Visit the website in your browser (e.g., https://javdb.com)
-#  2. Login if required / complete any verification
-#  3. Open browser DevTools (F12) → Application/Storage → Cookies
-#  4. Find the cookie name and value
-#  5. Add them here in format: domain = name1=value1,name2=value2
-#
-# Multiple cookies for the same domain should be comma-separated.
-# ============================================================================
+# Cookies are required to bypass Cloudflare and bot protection on JAV sites.
+# See COOKIE-CONFIGURATION.md for detailed instructions on extracting cookies.
 
 [cookies]
-# JavDB session cookie (required if JavDB blocks unauthenticated requests)
-# Cookie name: _jdb_session
-# Example: javdb.com = _jdb_session=YOUR_SESSION_TOKEN_HERE
-#javdb.com = _jdb_session=abc123def456,over18=1
+# JavDB - Most comprehensive modern JAV database
+# Required cookie: _jdb_session
+# How to get:
+#   1. Visit https://javdb.com in your browser
+#   2. Open DevTools (F12) → Application → Cookies → javdb.com
+#   3. Copy the value of '_jdb_session' cookie
+javdb.com = _jdb_session=PASTE_YOUR_SESSION_TOKEN_HERE
 
-# JAVBus Cloudflare clearance (required if Cloudflare protection is active)
-# Cookie name: cf_clearance
-# Example: javbus.com = cf_clearance=YOUR_CF_TOKEN_HERE
-#javbus.com = cf_clearance=xyz789
+# JAVBus - Popular JAV aggregator (may require Cloudflare bypass)
+# Required cookie: cf_clearance (if Cloudflare protection is active)
+# How to get:
+#   1. Visit https://javbus.com in your browser
+#   2. Complete any Cloudflare challenge if prompted
+#   3. Open DevTools (F12) → Application → Cookies → javbus.com
+#   4. Copy the value of 'cf_clearance' cookie
+javbus.com = cf_clearance=PASTE_YOUR_CF_TOKEN_HERE
 
-# Add more domains as needed
-# Format: domain.com = cookie1=value1,cookie2=value2
+# JAVLibrary - Content ID based database
+# Required cookie: varies (check browser after successful access)
+# How to get:
+#   1. Visit https://www.javlibrary.com in your browser
+#   2. Open DevTools (F12) → Application → Cookies
+#   3. Look for session cookies and copy their values
+# javlibrary.com = SESSION_COOKIE_NAME=PASTE_VALUE_HERE
+
+# AVMOO - Alternative JAV source
+# avmoo.com = COOKIE_NAME=PASTE_VALUE_HERE
+
+# Mgstage - Official MGS/Prestige studio site
+# mgstage.com = adc=1
+
+# ============================================================================
+# Multiple Cookies Per Domain
+# ============================================================================
+# If a site requires multiple cookies, separate them with commas:
+# javdb.com = _jdb_session=TOKEN123,over18=1,locale=en
+
+# ============================================================================
+# Security Notes
+# ============================================================================
+# ⚠️  Cookies are sensitive! Protect this file:
+#     chmod 600 ~/.mdc/config.ini
+# ⚠️  Never commit this file to version control
+# ⚠️  Cookies may expire - re-extract if you get 403 errors
+
+# ============================================================================
+# Testing Your Configuration
+# ============================================================================
+# Run the cookie tester to verify everything works:
+#   python3 test_cookies.py
+#
+# Expected output:
+#   ✅ Successfully authenticated: javdb.com, javbus.com
+#   🎉 All configured scrapers are working!
+
+# ============================================================================
+# Additional Configuration (Optional)
+# ============================================================================
+
+[http]
+# User agent string (default: Mozilla/5.0...)
+# user_agent = Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+
+# Request timeout in seconds (default: 10)
+# timeout = 10
+
+# Proxy URL (optional)
+# proxy = http://127.0.0.1:7890
+
+# SSL verification (default: false for JAV sites)
+# verify_ssl = false
+
+[scraping]
+# Request more detailed storyline/outline (default: false)
+# morestoryline = true
+
+# Enable debug logging (default: false)
+# debug = true
+
+# Preferred scrapers (comma-separated, in priority order)
+# sources = javdb,javbus,javlibrary,dmm
+
+[processing]
+# Default processing mode (1=Scraping, 2=Organizing, 3=Analysis)
+# mode = 1
+
+# Link mode (0=Move, 1=Soft link, 2=Hard link)
+# link_mode = 0
+
+# Concurrent processing tasks (default: 4)
+# concurrent = 4
+
+# Fail on error (default: false)
+# fail_on_error = false

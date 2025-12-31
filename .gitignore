@@ -111,4 +111,10 @@ JAV_output/**/*
 failed/*
 .vscode/launch.json
 
+# Configuration files with sensitive data (cookies, API keys)
+config.ini
+rust/config.ini
+*.ini
+!*.ini.example
+
 .idea
