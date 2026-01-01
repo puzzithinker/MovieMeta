@@ -11,13 +11,23 @@ use std::path::PathBuf;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
+/// Get the directory where the executable is located
+///
+/// Falls back to current directory if unable to determine executable path
+fn get_exe_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe_path| exe_path.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
 /// Logging configuration
 #[derive(Debug, Clone)]
 pub struct LogConfig {
     /// Log level (trace, debug, info, warn, error)
     pub level: String,
 
-    /// Log directory (defaults to current directory)
+    /// Log directory (defaults to executable directory)
     pub log_dir: PathBuf,
 
     /// Log file prefix (defaults to "mdc")
@@ -31,7 +41,7 @@ impl Default for LogConfig {
     fn default() -> Self {
         Self {
             level: "info".to_string(),
-            log_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            log_dir: get_exe_dir(),
             file_prefix: "mdc".to_string(),
             console: true,
         }
@@ -174,12 +184,12 @@ pub fn init_with_config(config: LogConfig) -> Result<()> {
 /// Initialize logging for CLI with optional log directory
 ///
 /// Creates a log file named `mdc-YYYY-MM-DD.log` in the specified directory
-/// (or current directory if not specified).
+/// (or executable directory if not specified).
 ///
 /// # Arguments
 ///
 /// * `debug` - Enable debug logging if true, info level if false
-/// * `log_dir` - Optional directory for log files (defaults to current directory)
+/// * `log_dir` - Optional directory for log files (defaults to executable directory)
 ///
 /// # Returns
 ///
@@ -190,7 +200,7 @@ pub fn init_with_config(config: LogConfig) -> Result<()> {
 /// ```no_run
 /// use mdc_core::logging::init_cli;
 ///
-/// // Info level logging in current directory
+/// // Info level logging in executable directory
 /// init_cli(false, None).expect("Failed to initialize logging");
 ///
 /// // Debug level logging in custom directory
@@ -211,12 +221,12 @@ pub fn init_cli(debug: bool, log_dir: Option<PathBuf>) -> Result<()> {
 /// Initialize logging for API server
 ///
 /// Creates a log file named `mdc-server-YYYY-MM-DD.log` in the specified directory
-/// (or current directory if not specified).
+/// (or executable directory if not specified).
 ///
 /// # Arguments
 ///
 /// * `debug` - Enable debug logging if true, info level if false
-/// * `log_dir` - Optional directory for log files (defaults to current directory)
+/// * `log_dir` - Optional directory for log files (defaults to executable directory)
 ///
 /// # Returns
 ///
