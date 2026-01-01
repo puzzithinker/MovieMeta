@@ -113,64 +113,39 @@ async fn download_image(url: &str, dest_path: &Path, cookie_header: Option<&str>
     Ok(())
 }
 
-/// Download images (cover, fanart, poster) for a movie
+/// Download images (poster only) for a movie
 async fn download_movie_images(
     metadata: &serde_json::Value,
     dest_folder: &Path,
     base_name: &str,
 ) -> Result<()> {
     // Extract image URLs from metadata
-    // MovieMetadata struct has: cover (main fanart), cover_small (poster), extrafanart (array)
+    // MovieMetadata struct has: cover (main image), cover_small (poster variant)
+    // We prioritize cover_small for poster, fallback to cover if not available
     let cover_url = metadata["cover"].as_str();
     let cover_small_url = metadata["cover_small"].as_str();
 
     tracing::debug!("Image URLs - cover: {:?}, cover_small: {:?}", cover_url, cover_small_url);
 
-    // Try to load cookies from config for authenticated downloads
-    let cookie_header = load_cookies_for_domain(
-        cover_url.and_then(|u| extract_domain(u))
-            .or_else(|| cover_small_url.and_then(|u| extract_domain(u)))
-    );
+    // Determine which URL to use for poster (prefer cover_small, fallback to cover)
+    let poster_url = cover_small_url
+        .filter(|url| !url.is_empty())
+        .or_else(|| cover_url.filter(|url| !url.is_empty()));
 
-    // Download main cover as fanart (background image for media players)
-    if let Some(url) = cover_url {
-        if !url.is_empty() {
-            let fanart_path = dest_folder.join(format!("{}-fanart.jpg", base_name));
-            tracing::info!("Downloading fanart from: {}", url);
-            if let Err(e) = download_image(url, &fanart_path, cookie_header.as_deref()).await {
-                tracing::warn!("Failed to download fanart from {}: {}", url, e);
-            } else {
-                tracing::info!("Downloaded fanart: {:?}", fanart_path);
-            }
-        }
-    }
+    if let Some(url) = poster_url {
+        // Try to load cookies from config for authenticated downloads
+        let cookie_header = load_cookies_for_domain(extract_domain(url));
 
-    // Download small cover as poster (main poster image)
-    if let Some(url) = cover_small_url {
-        if !url.is_empty() {
-            let poster_path = dest_folder.join(format!("{}-poster.jpg", base_name));
-            tracing::info!("Downloading poster from: {}", url);
-            if let Err(e) = download_image(url, &poster_path, cookie_header.as_deref()).await {
-                tracing::warn!("Failed to download poster from {}: {}", url, e);
-            } else {
-                tracing::info!("Downloaded poster: {:?}", poster_path);
-            }
-        }
-    }
+        let poster_path = dest_folder.join(format!("{}-poster.jpg", base_name));
+        tracing::info!("Downloading poster from: {}", url);
 
-    // If no cover_small, use main cover as poster too
-    if cover_small_url.is_none() || cover_small_url.unwrap_or("").is_empty() {
-        if let Some(url) = cover_url {
-            if !url.is_empty() {
-                let poster_path = dest_folder.join(format!("{}-poster.jpg", base_name));
-                tracing::info!("Using main cover as poster from: {}", url);
-                if let Err(e) = download_image(url, &poster_path, cookie_header.as_deref()).await {
-                    tracing::warn!("Failed to download poster from {}: {}", url, e);
-                } else {
-                    tracing::info!("Downloaded poster: {:?}", poster_path);
-                }
-            }
+        if let Err(e) = download_image(url, &poster_path, cookie_header.as_deref()).await {
+            tracing::warn!("Failed to download poster from {}: {}", url, e);
+        } else {
+            tracing::info!("Downloaded poster: {:?}", poster_path);
         }
+    } else {
+        tracing::debug!("No poster URL available for {}", base_name);
     }
 
     Ok(())
@@ -526,6 +501,7 @@ mod tests {
             naming_rule: "number".to_string(),
             link_mode: LinkMode::Move,
             create_nfo: false,
+            download_images: false, // Disable to avoid async runtime in tests
             ..Default::default()
         };
 
@@ -556,6 +532,7 @@ mod tests {
             mode: ProcessingMode::Analysis,
             naming_rule: "number".to_string(),
             create_nfo: true,
+            download_images: false, // Disable to avoid async runtime in tests
             ..Default::default()
         };
 
@@ -593,9 +570,12 @@ mod tests {
         let config = ProcessorConfig {
             mode: ProcessingMode::Organizing,
             success_folder: temp.path().join("output"),
+            location_rule: "number".to_string(), // Match test's expected destination
+            naming_rule: "number".to_string(),   // Match test's expected destination
             skip_existing: true,
             link_mode: LinkMode::Move,
             create_nfo: false,
+            download_images: false, // Disable to avoid async runtime in tests
             ..Default::default()
         };
 
