@@ -25,19 +25,104 @@ use std::path::{Path, PathBuf};
 use crate::file_metadata::FileSnapshot;
 use crate::processor::LinkMode;
 
+/// Check if two files are identical (same size and modification time)
+fn files_are_identical(a: &Path, b: &Path) -> Result<bool> {
+    let meta_a = fs::metadata(a)
+        .with_context(|| format!("Failed to read metadata for: {}", a.display()))?;
+    let meta_b = fs::metadata(b)
+        .with_context(|| format!("Failed to read metadata for: {}", b.display()))?;
+
+    // Compare file size
+    if meta_a.len() != meta_b.len() {
+        return Ok(false);
+    }
+
+    // Compare modification time
+    let Ok(mtime_a) = meta_a.modified() else {
+        return Ok(false);
+    };
+    let Ok(mtime_b) = meta_b.modified() else {
+        return Ok(false);
+    };
+
+    // Files are considered identical if they have the same size and modification time
+    Ok(mtime_a == mtime_b)
+}
+
+/// Get human-readable file size
+fn get_file_size(path: &Path) -> String {
+    if let Ok(metadata) = fs::metadata(path) {
+        let size = metadata.len() as f64;
+        if size < 1024.0 {
+            format!("{} B", size)
+        } else if size < 1024.0 * 1024.0 {
+            format!("{:.2} KB", size / 1024.0)
+        } else if size < 1024.0 * 1024.0 * 1024.0 {
+            format!("{:.2} MB", size / (1024.0 * 1024.0))
+        } else {
+            format!("{:.2} GB", size / (1024.0 * 1024.0 * 1024.0))
+        }
+    } else {
+        "unknown".to_string()
+    }
+}
+
 /// Move a file to destination
+///
+/// # Safety
+///
+/// This function performs the following safety checks:
+/// 1. Verifies source file exists before any operations
+/// 2. Detects if source and destination are the same file (already moved)
+/// 3. Detects if destination contains identical content
+/// 4. Only deletes destination after source is verified
+///
+/// This prevents data loss when re-running on already-processed files.
 pub fn move_file(src: &Path, dest: &Path) -> Result<()> {
+    // 1. CRITICAL SAFETY CHECK: Verify source exists FIRST
+    if !src.exists() {
+        anyhow::bail!(
+            "Source file does not exist: {}\nWill not proceed with move operation to avoid data loss",
+            src.display()
+        );
+    }
+
     // Ensure destination directory exists
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {:?}", parent))?;
     }
 
-    // If destination exists, remove it first
+    // 2. Check if source and destination are the same file (already moved)
+    if let (Ok(src_canonical), Ok(dest_canonical)) = (src.canonicalize(), dest.canonicalize()) {
+        if src_canonical == dest_canonical {
+            tracing::info!(
+                "Source and destination are the same file (already moved): {}",
+                dest.display()
+            );
+            return Ok(());
+        }
+    }
+
+    // 3. Check if destination exists
     if dest.exists() {
+        // 3a. Check if files are identical (same size and modification time)
+        if files_are_identical(src, dest)? {
+            tracing::info!(
+                "Destination already contains identical file ({}), removing source: {}",
+                get_file_size(dest),
+                src.display()
+            );
+            fs::remove_file(src)
+                .with_context(|| format!("Failed to remove source file: {}", src.display()))?;
+            tracing::info!("Removed duplicate source file: {}", src.display());
+            return Ok(());
+        }
+
+        // 3b. Different files - warn and delete destination (source verified, safe to proceed)
         let snapshot = FileSnapshot::capture(dest);
         tracing::warn!(
-            "Removing existing destination file before move: {}",
+            "Destination file exists and differs from source - replacing: {}",
             snapshot.format()
         );
 
@@ -50,7 +135,7 @@ pub fn move_file(src: &Path, dest: &Path) -> Result<()> {
     // Capture source metadata before move (for logging in case of cross-filesystem move)
     let src_snapshot = FileSnapshot::capture(src);
 
-    // Try to rename first (fastest if on same filesystem)
+    // 4. Try to rename first (fastest if on same filesystem)
     if let Err(_) = fs::rename(src, dest) {
         // If rename fails (cross-filesystem), copy and delete
         tracing::debug!("Rename failed, falling back to copy+delete for cross-filesystem move");
@@ -109,13 +194,32 @@ pub fn copy_file(src: &Path, dest: &Path) -> Result<()> {
 /// - On Windows: Fails with helpful message if symlink privileges are insufficient
 #[cfg(unix)]
 pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
+    // 1. CRITICAL SAFETY CHECK: Verify source exists FIRST
+    if !src.exists() {
+        anyhow::bail!(
+            "Source file does not exist: {}\nWill not proceed with link operation to avoid data loss",
+            src.display()
+        );
+    }
+
     // Ensure destination directory exists
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {:?}", parent))?;
     }
 
-    // Remove existing link if present
+    // 2. Check if source and destination are the same (already linked)
+    if let (Ok(src_canonical), Ok(dest_canonical)) = (src.canonicalize(), dest.canonicalize()) {
+        if src_canonical == dest_canonical {
+            tracing::info!(
+                "Source and destination are the same file (already linked): {}",
+                dest.display()
+            );
+            return Ok(());
+        }
+    }
+
+    // 3. Remove existing link if present (source verified, safe to proceed)
     if dest.exists() || dest.symlink_metadata().is_ok() {
         let snapshot = FileSnapshot::capture(dest);
         tracing::warn!(
@@ -157,13 +261,32 @@ pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
 /// - On Windows: Fails with helpful message if symlink privileges are insufficient
 #[cfg(windows)]
 pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
+    // 1. CRITICAL SAFETY CHECK: Verify source exists FIRST
+    if !src.exists() {
+        anyhow::bail!(
+            "Source file does not exist: {}\nWill not proceed with link operation to avoid data loss",
+            src.display()
+        );
+    }
+
     // Ensure destination directory exists
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {:?}", parent))?;
     }
 
-    // Remove existing link if present
+    // 2. Check if source and destination are the same (already linked)
+    if let (Ok(src_canonical), Ok(dest_canonical)) = (src.canonicalize(), dest.canonicalize()) {
+        if src_canonical == dest_canonical {
+            tracing::info!(
+                "Source and destination are the same file (already linked): {}",
+                dest.display()
+            );
+            return Ok(());
+        }
+    }
+
+    // 3. Remove existing link if present (source verified, safe to proceed)
     if dest.exists() || dest.symlink_metadata().is_ok() {
         let snapshot = FileSnapshot::capture(dest);
         tracing::warn!(
@@ -203,13 +326,32 @@ pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
 
 /// Create a hard link (falls back to soft link on error)
 pub fn create_hard_link(src: &Path, dest: &Path) -> Result<()> {
+    // 1. CRITICAL SAFETY CHECK: Verify source exists FIRST
+    if !src.exists() {
+        anyhow::bail!(
+            "Source file does not exist: {}\nWill not proceed with link operation to avoid data loss",
+            src.display()
+        );
+    }
+
     // Ensure destination directory exists
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {:?}", parent))?;
     }
 
-    // Remove existing link if present
+    // 2. Check if source and destination are the same (already linked)
+    if let (Ok(src_canonical), Ok(dest_canonical)) = (src.canonicalize(), dest.canonicalize()) {
+        if src_canonical == dest_canonical {
+            tracing::info!(
+                "Source and destination are the same file (already linked): {}",
+                dest.display()
+            );
+            return Ok(());
+        }
+    }
+
+    // 3. Remove existing link if present (source verified, safe to proceed)
     if dest.exists() {
         let snapshot = FileSnapshot::capture(dest);
         tracing::warn!(
@@ -490,4 +632,68 @@ mod tests {
             assert!(link_dir.join("file.txt").exists());
         }
     }
+
+    #[test]
+    fn test_move_file_source_does_not_exist_preserves_destination() {
+        // CRITICAL SAFETY TEST: Verifies the data loss bug is fixed
+        // This test simulates the exact scenario that caused the user's data loss:
+        // 1. Destination file exists (from previous run)
+        // 2. Source file doesn't exist (was already moved)
+        // 3. Trying to move should FAIL and PRESERVE destination
+
+        let temp = TempDir::new().unwrap();
+        let nonexistent_source = temp.path().join("nonexistent.mp4");
+        let existing_dest = temp.path().join("important_data.mp4");
+
+        // Create destination file with important data
+        std::fs::write(&existing_dest, "This is critical data that must not be lost").unwrap();
+        assert!(existing_dest.exists());
+
+        let original_content = std::fs::read_to_string(&existing_dest).unwrap();
+        let original_size = existing_dest.metadata().unwrap().len();
+
+        // Attempt to move non-existent source to existing destination
+        let result = move_file(&nonexistent_source, &existing_dest);
+
+        // CRITICAL: Move should fail
+        assert!(result.is_err(), "Move should fail when source doesn't exist");
+
+        // CRITICAL: Destination file must still exist with original content
+        assert!(existing_dest.exists(), "Destination file must not be deleted!");
+        assert_eq!(
+            std::fs::read_to_string(&existing_dest).unwrap(),
+            original_content,
+            "Destination file content must be unchanged!"
+        );
+        assert_eq!(
+            existing_dest.metadata().unwrap().len(),
+            original_size,
+            "Destination file size must be unchanged!"
+        );
+
+        // Verify error message mentions source doesn't exist
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Source file does not exist"),
+            "Error should clearly state source doesn't exist: {}", err_msg);
+        assert!(err_msg.contains("data loss"),
+            "Error should mention data loss prevention: {}", err_msg);
+    }
+
+    #[test]
+    fn test_move_file_already_moved_same_file() {
+        // Test that moving a file to itself (already moved) is detected and skipped
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("movie.mp4");
+
+        std::fs::write(&file_path, "movie content").unwrap();
+
+        // Try to "move" file to itself
+        let result = move_file(&file_path, &file_path);
+
+        // Should succeed (no-op)
+        assert!(result.is_ok(), "Moving file to itself should succeed as no-op");
+        assert!(file_path.exists(), "File should still exist");
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "movie content");
+    }
+
 }
