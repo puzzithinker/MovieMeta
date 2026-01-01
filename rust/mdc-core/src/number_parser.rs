@@ -404,6 +404,9 @@ fn get_take_num_rules() -> HashMap<&'static str, ExtractFn> {
     // Tokyo Hot: (cz|gedo|k|n|red-|se)\d{2,4}
     rules.insert("tokyo.*hot", extract_tokyo_hot);
 
+    // OKP: okp\d+
+    rules.insert("okp", extract_okp);
+
     // Carib: \d{6}(-|_)\d{3}, replace _ with -
     rules.insert("carib", extract_carib);
 
@@ -457,6 +460,18 @@ fn extract_tokyo_hot(filename: &str) -> Option<String> {
         return Some(format!("n{}", &caps[1]));
     }
 
+    None
+}
+
+fn extract_okp(filename: &str) -> Option<String> {
+    // Extract OKP ID: okp00050 → OKP50
+    let re = Regex::new(r"(?i)okp[-_]?(\d+)").ok()?;
+    if let Some(caps) = re.captures(filename) {
+        let digits = &caps[1];
+        let trimmed = digits.trim_start_matches('0');
+        let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
+        return Some(format!("OKP{}", final_digits));
+    }
     None
 }
 
@@ -565,6 +580,15 @@ pub fn convert_to_content_id(display_id: &str) -> String {
         return format!("heyzo{}", padded);
     }
 
+    // OKP special handling: OKP50 → okp50, OKP-050 → okp50 (trim zeros, no hyphen)
+    let re_okp = Regex::new(r"^okp[-_]?(\d+)$").unwrap();
+    if let Some(caps) = re_okp.captures(&lower) {
+        let digits = &caps[1];
+        let trimmed = digits.trim_start_matches('0');
+        let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
+        return format!("okp{}", final_digits);
+    }
+
     // Tokyo-Hot special handling: n1234, k0123 → keep as-is (already content format)
     let re_tokyohot = Regex::new(r"^(cz|gedo|k|n|red|se)\d+$").unwrap();
     if re_tokyohot.is_match(&lower) {
@@ -636,7 +660,16 @@ pub fn convert_to_display_id(content_id: &str) -> String {
         return format!("HEYZO-{}", final_digits);
     }
 
-    // Tokyo-Hot special handling: n01234, k0123 → n1234, k123 (no hyphen)
+    // OKP special handling: okp00050 → OKP50 (uppercase, no hyphen, trim zeros)
+    let re_okp = Regex::new(r"^okp(\d+)$").unwrap();
+    if let Some(caps) = re_okp.captures(&lower) {
+        let digits = &caps[1];
+        let trimmed = digits.trim_start_matches('0');
+        let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
+        return format!("OKP{}", final_digits);
+    }
+
+    // Tokyo-Hot special handling: n01234, k0123 → n1234, k123 (lowercase, no hyphen, trim zeros)
     let re_tokyohot = Regex::new(r"^([a-z]+)(\d+)$").unwrap();
     if let Some(caps) = re_tokyohot.captures(&lower) {
         let prefix = &caps[1];
@@ -1954,6 +1987,14 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_to_content_id_okp() {
+        // OKP IDs remain as-is (similar to Tokyo-Hot format)
+        assert_eq!(convert_to_content_id("OKP50"), "okp50");
+        assert_eq!(convert_to_content_id("okp050"), "okp50");
+        assert_eq!(convert_to_content_id("OKP-050"), "okp50");
+    }
+
+    #[test]
     fn test_convert_to_display_id_standard() {
         // Standard content ID to display: abc00123 → ABC-123
         assert_eq!(convert_to_display_id("ssis00123"), "SSIS-123");
@@ -1991,6 +2032,14 @@ mod tests {
         assert_eq!(convert_to_display_id("n1234"), "n1234");
         assert_eq!(convert_to_display_id("k0123"), "k123");
         assert_eq!(convert_to_display_id("n01234"), "n1234");
+    }
+
+    #[test]
+    fn test_convert_to_display_id_okp() {
+        // OKP IDs: uppercase prefix, no hyphen, leading zeros trimmed
+        assert_eq!(convert_to_display_id("okp50"), "OKP50");
+        assert_eq!(convert_to_display_id("okp00050"), "OKP50");
+        assert_eq!(convert_to_display_id("okp050"), "OKP50");
     }
 
     #[test]
@@ -2049,6 +2098,19 @@ mod tests {
         // Note: special_site detection depends on get_number_by_dict matching
         // After Tokyo_Hot_ prefix stripping, the detection path may vary
         // The important part is that ID extraction works correctly
+    }
+
+    #[test]
+    fn test_parse_number_okp() {
+        // Test OKP format: okp00050 → OKP50
+        let result = parse_number("okp00050.mp4", None).unwrap();
+        assert_eq!(result.id, "OKP50");
+        assert_eq!(result.content_id, "okp50");
+
+        // Test with folder structure
+        let result2 = parse_number("OKP050/okp00050.mp4", None).unwrap();
+        assert_eq!(result2.id, "OKP50");
+        assert_eq!(result2.content_id, "okp50");
     }
 
     #[test]
