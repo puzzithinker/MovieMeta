@@ -22,6 +22,7 @@ use std::os::windows::fs as windows_fs;
 
 use std::path::{Path, PathBuf};
 
+use crate::file_metadata::FileSnapshot;
 use crate::processor::LinkMode;
 
 /// Move a file to destination
@@ -34,20 +35,46 @@ pub fn move_file(src: &Path, dest: &Path) -> Result<()> {
 
     // If destination exists, remove it first
     if dest.exists() {
+        let snapshot = FileSnapshot::capture(dest);
+        tracing::warn!(
+            "Removing existing destination file before move: {}",
+            snapshot.format()
+        );
+
         fs::remove_file(dest)
             .with_context(|| format!("Failed to remove existing file: {:?}", dest))?;
+
+        tracing::info!("Deleted existing destination: {}", dest.display());
     }
+
+    // Capture source metadata before move (for logging in case of cross-filesystem move)
+    let src_snapshot = FileSnapshot::capture(src);
 
     // Try to rename first (fastest if on same filesystem)
     if let Err(_) = fs::rename(src, dest) {
         // If rename fails (cross-filesystem), copy and delete
+        tracing::debug!("Rename failed, falling back to copy+delete for cross-filesystem move");
+
         fs::copy(src, dest)
             .with_context(|| format!("Failed to copy {} to {}", src.display(), dest.display()))?;
+
+        tracing::info!(
+            "Removing source file after copy (cross-filesystem move): {}",
+            src_snapshot.format()
+        );
+
         fs::remove_file(src)
             .with_context(|| format!("Failed to remove source file: {}", src.display()))?;
+
+        tracing::info!("Deleted source after copy: {}", src.display());
     }
 
-    tracing::info!("Moved file: {} -> {}", src.display(), dest.display());
+    tracing::info!(
+        "Moved file: {} -> {} ({})",
+        src.display(),
+        dest.display(),
+        src_snapshot.format_size()
+    );
     Ok(())
 }
 
@@ -90,8 +117,16 @@ pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
 
     // Remove existing link if present
     if dest.exists() || dest.symlink_metadata().is_ok() {
+        let snapshot = FileSnapshot::capture(dest);
+        tracing::warn!(
+            "Removing existing link before creating soft link: {}",
+            snapshot.format()
+        );
+
         fs::remove_file(dest)
             .with_context(|| format!("Failed to remove existing link: {:?}", dest))?;
+
+        tracing::info!("Deleted existing link: {}", dest.display());
     }
 
     unix_fs::symlink(src, dest).with_context(|| {
@@ -130,8 +165,16 @@ pub fn create_soft_link(src: &Path, dest: &Path) -> Result<()> {
 
     // Remove existing link if present
     if dest.exists() || dest.symlink_metadata().is_ok() {
+        let snapshot = FileSnapshot::capture(dest);
+        tracing::warn!(
+            "Removing existing link before creating soft link: {}",
+            snapshot.format()
+        );
+
         fs::remove_file(dest)
             .with_context(|| format!("Failed to remove existing link: {:?}", dest))?;
+
+        tracing::info!("Deleted existing link: {}", dest.display());
     }
 
     // Detect if source is a file or directory
@@ -168,8 +211,16 @@ pub fn create_hard_link(src: &Path, dest: &Path) -> Result<()> {
 
     // Remove existing link if present
     if dest.exists() {
+        let snapshot = FileSnapshot::capture(dest);
+        tracing::warn!(
+            "Removing existing file before creating hard link: {}",
+            snapshot.format()
+        );
+
         fs::remove_file(dest)
             .with_context(|| format!("Failed to remove existing file: {:?}", dest))?;
+
+        tracing::info!("Deleted existing file: {}", dest.display());
     }
 
     // Try hard link first

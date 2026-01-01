@@ -14,8 +14,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use mdc_core::{
-    logging, scanner, BatchProcessor, DualId, LinkMode, ProcessingMode, ProcessingStats,
-    ProcessorConfig,
+    file_metadata::FileSnapshot, logging, scanner, BatchProcessor, DualId, LinkMode,
+    ProcessingMode, ProcessingStats, ProcessorConfig,
 };
 use mdc_scraper::scrapers::{
     AvmooScraper, DmmScraper, Fc2Scraper, ImdbScraper, Jav321Scraper, JavbusScraper,
@@ -80,10 +80,25 @@ fn delete_files(
                 error: None,
             });
         } else if permanent {
-            // Permanent deletion
+            // Permanent deletion - capture metadata BEFORE deletion
+            let snapshot = FileSnapshot::capture(&result.file_path);
+
+            tracing::warn!(
+                "PERMANENT DELETION - invalid video code: {} - reason: {}",
+                snapshot.format(),
+                result.error.as_deref().unwrap_or("Unknown error")
+            );
+
             match std::fs::remove_file(&result.file_path) {
                 Ok(_) => {
                     println!("  ✓ Permanently deleted: {}", result.file_path.display());
+
+                    tracing::info!(
+                        "Deleted invalid file: {} (size: {} bytes)",
+                        result.file_path.display(),
+                        snapshot.size_bytes
+                    );
+
                     deletion_results.push(DeletionResult {
                         file_path: result.file_path.clone(),
                         success: true,
@@ -96,6 +111,13 @@ fn delete_files(
                         result.file_path.display(),
                         e
                     );
+
+                    tracing::error!(
+                        "Failed to delete invalid file: {} - error: {}",
+                        result.file_path.display(),
+                        e
+                    );
+
                     deletion_results.push(DeletionResult {
                         file_path: result.file_path.clone(),
                         success: false,
@@ -114,6 +136,14 @@ fn delete_files(
             match std::fs::rename(&result.file_path, &dest) {
                 Ok(_) => {
                     println!("  ✓ Moved to trash: {}", result.file_path.display());
+
+                    tracing::info!(
+                        "Moved invalid file to trash: {} -> {} - reason: {}",
+                        result.file_path.display(),
+                        dest.display(),
+                        result.error.as_deref().unwrap_or("Unknown error")
+                    );
+
                     deletion_results.push(DeletionResult {
                         file_path: result.file_path.clone(),
                         success: true,
@@ -122,6 +152,13 @@ fn delete_files(
                 }
                 Err(e) => {
                     eprintln!("  ✗ Failed to move: {} - {}", result.file_path.display(), e);
+
+                    tracing::error!(
+                        "Failed to move invalid file to trash: {} - error: {}",
+                        result.file_path.display(),
+                        e
+                    );
+
                     deletion_results.push(DeletionResult {
                         file_path: result.file_path.clone(),
                         success: false,
@@ -267,11 +304,22 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
-    if cli.debug {
-        logging::init_debug();
+    // Initialize logging with file support
+    let log_result = if cli.debug {
+        logging::init_cli(true, None)
     } else {
-        logging::init();
+        logging::init_cli(false, None)
+    };
+
+    if let Err(e) = log_result {
+        eprintln!("Warning: Failed to initialize file logging: {}", e);
+        eprintln!("Continuing with console-only logging...");
+        // Fallback to simple logging
+        if cli.debug {
+            logging::init_debug();
+        } else {
+            logging::init();
+        }
     }
 
     if cli.version {

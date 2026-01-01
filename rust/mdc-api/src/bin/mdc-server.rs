@@ -3,6 +3,7 @@
 //! REST API and WebSocket server for MDC
 
 use clap::Parser;
+use mdc_core::logging;
 use std::net::SocketAddr;
 
 #[derive(Parser)]
@@ -26,14 +27,23 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Initialize logging
-    if args.debug {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
+    // Initialize logging with file support
+    let log_result = if args.debug {
+        logging::init_server(true, None)
     } else {
+        logging::init_server(false, None)
+    };
+
+    if let Err(e) = log_result {
+        eprintln!("Warning: Failed to initialize file logging: {}", e);
+        eprintln!("Continuing with basic logging...");
+        // Fallback to basic logging
         tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
+            .with_max_level(if args.debug {
+                tracing::Level::DEBUG
+            } else {
+                tracing::Level::INFO
+            })
             .init();
     }
 

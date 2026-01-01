@@ -3,6 +3,7 @@
 //! This crate contains the core types and business logic for Movie Data Capture.
 
 pub mod batch;
+pub mod file_metadata;
 pub mod file_ops;
 pub mod logging;
 pub mod nfo;
