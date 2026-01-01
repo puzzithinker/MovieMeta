@@ -1325,11 +1325,11 @@ fn cleanup_extracted_id(mut extracted_id: String) -> String {
             // If the rest contains Japanese/Chinese or looks like junk, keep just the core ID
             // Junk patterns:
             // 1. Japanese text anywhere
-            // 2. Lowercase descriptions (kawaii, etc.)
+            // 2. Lowercase descriptions (kawaii, etc.) - 3+ chars to preserve -UC, -C
             // 3. Single-letter + delimiter + 2+ chars (C_GG5, C-GG5) - watermark artifacts
             // Note: We preserve short suffixes like -UC, -C (2 chars) as they're likely attributes
             if Regex::new(r"[\p{Han}\p{Hiragana}\p{Katakana}]").unwrap().is_match(rest)
-                || Regex::new(r"(?i)^[-_][a-z]{2,}").unwrap().is_match(rest)
+                || Regex::new(r"(?i)^[-_][a-z]{3,}").unwrap().is_match(rest)
                 || Regex::new(r"(?i)^[-_][A-Z][-_][A-Z0-9]{2,}").unwrap().is_match(rest) {
                 return core_id;
             }
@@ -2710,9 +2710,9 @@ mod parser_fix_tests {
         let result1 = parse_number("AVOP-212-kawaii_10周年SPECIAL企画.mp4", None).unwrap();
         assert_eq!(result1.id, "AVOP-212", "Japanese title not stripped");
 
-        // Test 2: Watermark domain with _
+        // Test 2: Watermark domain with _ (OKP format has no hyphen)
         let result2 = parse_number("AVFAP.NET_okp-103.mp4", None).unwrap();
-        assert_eq!(result2.id, "OKP-103", "Watermark with _ not removed");
+        assert_eq!(result2.id, "OKP103", "Watermark with _ not removed");
 
         // Test 3: Watermark domain with @
         let result3 = parse_number("gg5.co@IPZZ-227-C_GG5.mp4", None).unwrap();

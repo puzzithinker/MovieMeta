@@ -122,7 +122,7 @@ async fn test_organizing_mode_multiple_files() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_analysis_mode_in_place() {
     let temp_dir = TempDir::new().unwrap();
 
@@ -474,7 +474,7 @@ async fn test_subtitle_moving() {
     assert!(!subtitle_file.exists(), "Original subtitle should be gone");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_nfo_generation() {
     let temp_input = TempDir::new().unwrap();
     let temp_output = TempDir::new().unwrap();

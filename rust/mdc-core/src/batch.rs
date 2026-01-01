@@ -315,4 +315,358 @@ mod tests {
         assert_eq!(stats.succeeded, 0);
         assert_eq!(stats.failed, 1);
     }
+
+    #[tokio::test]
+    async fn test_batch_processor_concurrent_limit() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::time::{sleep, Duration};
+
+        let temp = TempDir::new().unwrap();
+
+        // Create multiple test files
+        let mut files = Vec::new();
+        for i in 0..10 {
+            let file = temp.path().join(format!("TEST-{:03}.mp4", i + 1));
+            fs::write(&file, "content").unwrap();
+            files.push(file);
+        }
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            link_mode: LinkMode::Move,
+            success_folder: temp.path().join("output"),
+            create_nfo: false,
+            ..Default::default()
+        };
+
+        // Set max_concurrent to 3
+        let processor = BatchProcessor::new(config, 3);
+
+        // Track concurrent executions
+        let concurrent_count = Arc::new(AtomicUsize::new(0));
+        let max_concurrent = Arc::new(AtomicUsize::new(0));
+        let concurrent_clone = concurrent_count.clone();
+        let max_clone = max_concurrent.clone();
+
+        let metadata_provider = Arc::new(move |dual_id: DualId| {
+            let concurrent_clone = concurrent_clone.clone();
+            let max_clone = max_clone.clone();
+            async move {
+                // Increment concurrent count
+                let current = concurrent_clone.fetch_add(1, Ordering::SeqCst) + 1;
+
+                // Update max if needed
+                let mut max = max_clone.load(Ordering::SeqCst);
+                while current > max {
+                    match max_clone.compare_exchange(max, current, Ordering::SeqCst, Ordering::SeqCst) {
+                        Ok(_) => break,
+                        Err(x) => max = x,
+                    }
+                }
+
+                // Simulate some work
+                sleep(Duration::from_millis(50)).await;
+
+                // Decrement concurrent count
+                concurrent_clone.fetch_sub(1, Ordering::SeqCst);
+
+                Ok(json!({
+                    "number": dual_id.display,
+                    "title": "Test"
+                }))
+            }
+        });
+
+        let (results, stats) = processor
+            .process_batch(files, metadata_provider, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 10);
+        assert_eq!(stats.succeeded, 10);
+
+        // Verify concurrent limit was respected (should be <= 3)
+        let max = max_concurrent.load(Ordering::SeqCst);
+        assert!(max <= 3, "Max concurrent was {}, expected <= 3", max);
+        assert!(max > 0, "Should have had some concurrent execution");
+    }
+
+    #[tokio::test]
+    async fn test_batch_processor_mixed_results() {
+        let temp = TempDir::new().unwrap();
+
+        // Create test files - some valid, some invalid
+        let file1 = temp.path().join("TEST-001.mp4");
+        let file2 = temp.path().join("invalid_name.mp4");
+        let file3 = temp.path().join("TEST-003.mp4");
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+        fs::write(&file3, "content3").unwrap();
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            link_mode: LinkMode::Move,
+            success_folder: temp.path().join("output"),
+            create_nfo: false,
+            ..Default::default()
+        };
+
+        let processor = BatchProcessor::new(config, 2);
+
+        // Provider that fails for specific numbers
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
+            if dual_id.display == "TEST-003" {
+                Err(anyhow::anyhow!("Simulated fetch error"))
+            } else {
+                Ok(json!({
+                    "number": dual_id.display,
+                    "title": "Test"
+                }))
+            }
+        });
+
+        let files = vec![file1.clone(), file2.clone(), file3.clone()];
+        let (results, stats) = processor
+            .process_batch(files, metadata_provider, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+
+        // One should succeed (TEST-001), two should fail (invalid_name and TEST-003)
+        assert_eq!(stats.succeeded, 1);
+        assert_eq!(stats.failed, 2);
+
+        // Check individual results
+        let success_count = results.iter().filter(|r| r.success).count();
+        let fail_count = results.iter().filter(|r| !r.success).count();
+        assert_eq!(success_count, 1);
+        assert_eq!(fail_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_batch_processor_empty_batch() {
+        let temp = TempDir::new().unwrap();
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            success_folder: temp.path().join("output"),
+            ..Default::default()
+        };
+
+        let processor = BatchProcessor::new(config, 2);
+
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
+            Ok(json!({
+                "number": dual_id.display,
+                "title": "Test"
+            }))
+        });
+
+        let files = Vec::new();
+        let (results, stats) = processor
+            .process_batch(files, metadata_provider, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 0);
+        assert_eq!(stats.succeeded, 0);
+        assert_eq!(stats.failed, 0);
+        assert_eq!(stats.total_processed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_batch_processor_dual_id_format() {
+        let temp = TempDir::new().unwrap();
+
+        // Create files with various ID formats
+        let file1 = temp.path().join("SSIS-123.mp4");
+        let file2 = temp.path().join("FC2-PPV-1234567.mp4");
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            link_mode: LinkMode::Move,
+            success_folder: temp.path().join("output"),
+            create_nfo: false,
+            ..Default::default()
+        };
+
+        let processor = BatchProcessor::new(config, 2);
+
+        // Track which dual IDs were passed
+        let captured_ids = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_clone = captured_ids.clone();
+
+        let metadata_provider = Arc::new(move |dual_id: DualId| {
+            captured_clone.lock().unwrap().push((dual_id.display.clone(), dual_id.content.clone()));
+            async move {
+                Ok(json!({
+                    "number": dual_id.display,
+                    "title": "Test"
+                }))
+            }
+        });
+
+        let files = vec![file1, file2];
+        let (results, stats) = processor
+            .process_batch(files, metadata_provider, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(stats.succeeded, 2);
+
+        // Verify dual IDs were captured correctly
+        let ids = captured_ids.lock().unwrap();
+        assert_eq!(ids.len(), 2);
+
+        // Check that we have both display and content formats
+        assert!(ids.iter().any(|(display, _)| display == "SSIS-123"));
+        assert!(ids.iter().any(|(display, content)| display == "FC2-PPV-1234567" && content.contains("fc2")));
+    }
+
+    #[tokio::test]
+    async fn test_batch_processor_number_parsing_errors() {
+        let temp = TempDir::new().unwrap();
+
+        // Create files with various problematic names that won't parse
+        let file1 = temp.path().join("no_number.mp4");
+        let file2 = temp.path().join("invalid.mp4");
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            success_folder: temp.path().join("output"),
+            ..Default::default()
+        };
+
+        let processor = BatchProcessor::new(config, 2);
+
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
+            Ok(json!({
+                "number": dual_id.display,
+                "title": "Test"
+            }))
+        });
+
+        let files = vec![file1, file2];
+        let (results, stats) = processor
+            .process_batch(files, metadata_provider, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+
+        // All should fail with number parsing errors
+        assert_eq!(stats.failed, 2);
+        assert_eq!(stats.succeeded, 0);
+
+        // Verify error messages mention parsing
+        for result in &results {
+            assert!(!result.success);
+            assert!(result.error.is_some());
+            let error = result.error.as_ref().unwrap();
+            assert!(error.contains("parsing") || error.contains("extract"),
+                    "Error should mention parsing: {}", error);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_batch_processor_large_batch() {
+        let temp = TempDir::new().unwrap();
+
+        // Create a large batch (50 files)
+        let mut files = Vec::new();
+        for i in 0..50 {
+            let file = temp.path().join(format!("TEST-{:03}.mp4", i + 1));
+            fs::write(&file, "content").unwrap();
+            files.push(file);
+        }
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            link_mode: LinkMode::Move,
+            success_folder: temp.path().join("output"),
+            create_nfo: false,
+            ..Default::default()
+        };
+
+        let processor = BatchProcessor::new(config, 10);
+
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
+            Ok(json!({
+                "number": dual_id.display,
+                "title": "Test"
+            }))
+        });
+
+        let (results, stats) = processor
+            .process_batch(files, metadata_provider, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 50);
+        assert_eq!(stats.total_processed, 50);
+        assert_eq!(stats.succeeded, 50);
+        assert_eq!(stats.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_batch_processor_progress_accuracy() {
+        let temp = TempDir::new().unwrap();
+
+        // Create 5 test files
+        let mut files = Vec::new();
+        for i in 0..5 {
+            let file = temp.path().join(format!("TEST-{:03}.mp4", i + 1));
+            fs::write(&file, "content").unwrap();
+            files.push(file);
+        }
+
+        let config = ProcessorConfig {
+            mode: ProcessingMode::Organizing,
+            link_mode: LinkMode::Move,
+            success_folder: temp.path().join("output"),
+            create_nfo: false,
+            ..Default::default()
+        };
+
+        let processor = BatchProcessor::new(config, 2);
+
+        let metadata_provider = Arc::new(|dual_id: DualId| async move {
+            Ok(json!({
+                "number": dual_id.display,
+                "title": "Test"
+            }))
+        });
+
+        // Track all progress updates
+        let progress_updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let progress_clone = progress_updates.clone();
+
+        let progress_callback = Arc::new(move |current: usize, total: usize| {
+            progress_clone.lock().unwrap().push((current, total));
+        });
+
+        processor
+            .process_batch(files, metadata_provider, Some(progress_callback))
+            .await
+            .unwrap();
+
+        let updates = progress_updates.lock().unwrap();
+
+        // Should have 5 progress updates (one per file)
+        assert_eq!(updates.len(), 5);
+
+        // All updates should report total=5
+        assert!(updates.iter().all(|(_, total)| *total == 5));
+
+        // Current should go from 1 to 5
+        let mut currents: Vec<usize> = updates.iter().map(|(c, _)| *c).collect();
+        currents.sort();
+        assert_eq!(currents, vec![1, 2, 3, 4, 5]);
+    }
 }
