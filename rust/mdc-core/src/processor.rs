@@ -49,13 +49,37 @@ impl FileAttributes {
         let path_str = path.to_string_lossy();
         let mut attrs = FileAttributes::default();
 
-        // Multi-part detection: -CD1, -CD2, _CD1, etc.
-        if let Some(caps) = regex::Regex::new(r"[-_]CD\d+")
-            .ok()
-            .and_then(|re| re.find(&path_str))
-        {
-            attrs.multi_part = true;
-            attrs.part = caps.as_str().to_uppercase();
+        // Multi-part detection with comprehensive pattern support
+        // Priority order: explicit markers first, then numeric suffixes
+        //
+        // For numeric patterns, we need to be careful not to match the movie number itself.
+        // Movie numbers typically follow patterns like: ABC-123, SSIS-456, T28-001
+        // Multi-part suffixes come AFTER: ABC-123-2, SSIS-456-CD1, etc.
+        //
+        // The numeric pattern requires that there's already a complete ID before the number,
+        // by looking for: letters + dash/number, then another dash/underscore + just digits + extension
+        let patterns = [
+            (r"[-_](CD\d+)", "CD"),              // -CD1, -CD2, _CD1
+            (r"(?i)[-_](DISK\d+)", "DISK"),      // -disk1, -disk2, _DISK3
+            (r"(?i)[-_](DISC\d+)", "DISC"),      // -disc1, -disc2, _DISC3
+            (r"(?i)[-_](PART\d+)", "PART"),      // -part1, -part2, _PART3
+            (r"(?i)[-_](PARTS\d+)", "PARTS"),    // -parts1 (less common)
+            (r"(?i)[-_](PT\d+)", "PT"),          // -pt1, -pt2, _PT3
+            // Numeric pattern: requires previous dash with digits (movie ID), then another dash + 1-2 digits
+            // This prevents matching the movie number itself
+            (r"-\d+[-_](\d{1,2})(?:[-_][CU])?\.[\w]+$", "NUM"),
+        ];
+
+        for (pattern, _label) in patterns {
+            if let Some(caps) = regex::Regex::new(pattern)
+                .ok()
+                .and_then(|re| re.captures(&path_str))
+            {
+                let captured = caps.get(1).unwrap().as_str().to_uppercase();
+                attrs.multi_part = true;
+                attrs.part = format!("-{}", captured);
+                break;  // Use first match only
+            }
         }
 
         // Chinese subtitle detection
@@ -183,11 +207,106 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_file_attributes_multi_part() {
+    fn test_file_attributes_multi_part_cd() {
+        // CD pattern detection (original behavior)
         let path = Path::new("/movies/TEST-001-CD1.mp4");
         let attrs = FileAttributes::from_path(path);
-
         assert!(attrs.multi_part);
+        assert_eq!(attrs.part, "-CD1");
+
+        let path2 = Path::new("/movies/TEST-001_CD2.mp4");
+        let attrs2 = FileAttributes::from_path(path2);
+        assert!(attrs2.multi_part);
+        assert_eq!(attrs2.part, "-CD2");
+    }
+
+    #[test]
+    fn test_file_attributes_multi_part_numeric() {
+        // User's specific case - numeric suffixes
+        let path = Path::new("/movies/migd-534/[456k.me]migd-534-2.mp4");
+        let attrs = FileAttributes::from_path(path);
+        assert!(attrs.multi_part, "Failed to detect -2 as multi-part");
+        assert_eq!(attrs.part, "-2");
+
+        // Other numeric patterns
+        let path2 = Path::new("/movies/ABC-123-1.mp4");
+        let attrs2 = FileAttributes::from_path(path2);
+        assert!(attrs2.multi_part);
+        assert_eq!(attrs2.part, "-1");
+
+        let path3 = Path::new("/movies/XYZ-456_3.mkv");
+        let attrs3 = FileAttributes::from_path(path3);
+        assert!(attrs3.multi_part);
+        assert_eq!(attrs3.part, "-3");
+    }
+
+    #[test]
+    fn test_file_attributes_multi_part_disc() {
+        let path = Path::new("/movies/ABC-123-disc1.mp4");
+        let attrs = FileAttributes::from_path(path);
+        assert!(attrs.multi_part);
+        assert_eq!(attrs.part, "-DISC1");
+
+        let path2 = Path::new("/movies/XYZ-456_disk2.mkv");
+        let attrs2 = FileAttributes::from_path(path2);
+        assert!(attrs2.multi_part);
+        assert_eq!(attrs2.part, "-DISK2");
+    }
+
+    #[test]
+    fn test_file_attributes_multi_part_part() {
+        let path = Path::new("/movies/ABC-123-part1.mp4");
+        let attrs = FileAttributes::from_path(path);
+        assert!(attrs.multi_part);
+        assert_eq!(attrs.part, "-PART1");
+
+        let path2 = Path::new("/movies/XYZ-456_pt2.mkv");
+        let attrs2 = FileAttributes::from_path(path2);
+        assert!(attrs2.multi_part);
+        assert_eq!(attrs2.part, "-PT2");
+    }
+
+    #[test]
+    fn test_file_attributes_not_multi_part() {
+        // Movie numbers that end in digits - should NOT detect as multi-part
+        let cases = vec![
+            "/movies/SSIS-123.mp4",          // Primary number
+            "/movies/T28-001.mp4",           // T28 format
+            "/movies/FC2-PPV-1234567.mp4",   // FC2 format
+        ];
+
+        for path_str in cases {
+            let path = Path::new(path_str);
+            let attrs = FileAttributes::from_path(path);
+            assert!(!attrs.multi_part, "Incorrectly detected {} as multi-part", path_str);
+            assert_eq!(attrs.part, "", "Part should be empty for {}", path_str);
+        }
+    }
+
+    #[test]
+    fn test_file_attributes_multi_part_with_attributes() {
+        // Multi-part + Chinese subtitle
+        let path = Path::new("/movies/MIGD-534-2-C.mp4");
+        let attrs = FileAttributes::from_path(path);
+        assert!(attrs.multi_part);
+        assert_eq!(attrs.part, "-2");
+        assert!(attrs.cn_sub);
+
+        // Multi-part + Uncensored
+        let path2 = Path::new("/movies/ABC-123-CD1-U.mp4");
+        let attrs2 = FileAttributes::from_path(path2);
+        assert!(attrs2.multi_part);
+        assert_eq!(attrs2.part, "-CD1");
+        assert!(attrs2.uncensored);
+    }
+
+    #[test]
+    fn test_file_attributes_multi_part_priority() {
+        // Test that CD pattern takes priority over numeric
+        let path = Path::new("/movies/ABC-123-CD1-2.mp4");
+        let attrs = FileAttributes::from_path(path);
+        assert!(attrs.multi_part);
+        // Should match CD1, not -2
         assert_eq!(attrs.part, "-CD1");
     }
 

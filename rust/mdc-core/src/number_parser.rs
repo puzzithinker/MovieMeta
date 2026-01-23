@@ -884,9 +884,9 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     }
 
     // Strip watermark domains in special formats: ses23.com, javhd.com, etc.
-    // Pattern: domain.tld followed by hyphen or underscore (common watermark format)
-    // Examples: ses23.com-NHDTA-609, javhd.com_IPX-001
-    if let Ok(re) = Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de|cn|to)[-_]") {
+    // Pattern: domain.tld followed by hyphen, underscore, or space (common watermark format)
+    // Examples: ses23.com-NHDTA-609, javhd.com_IPX-001, 935838.xyz HMN-784
+    if let Ok(re) = Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de|cn|to)[-_\s]") {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
@@ -1409,7 +1409,26 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
             &filename
         };
 
-        // Try to extract alphanumeric with - and _
+        // PRIORITY 1: Check for standard JAV format first (ABC-123 pattern)
+        // This prevents bare numbers from being matched before proper IDs
+        // Only match if at start or after space (not in middle of compound formats like FC2-PPV)
+        // Match the ID plus everything after it (until space/end) for cleanup processing
+        // Examples: HMN-784, SSIS-123-C, AVOP-212-kawaii_10周年
+        if let Ok(std_re) = Regex::new(r"(?:^|\s)([A-Z]{2,5}[-_]\d{2,5}[^\s]*)") {
+            if let Some(caps) = std_re.captures(&file_number.to_uppercase()) {
+                if let Some(matched) = caps.get(1) {
+                    // Map back to original case from file_number
+                    let start = matched.start();
+                    let end = matched.end();
+                    if let Some(original) = file_number.get(start..end) {
+                        // Call cleanup to strip Japanese text while preserving short suffixes
+                        return Ok(cleanup_extracted_id(original.to_string()));
+                    }
+                }
+            }
+        }
+
+        // PRIORITY 2: Try to extract alphanumeric with - and _ (fallback)
         let file_number = if let Ok(re) = Regex::new(r"[\w\-_]+") {
             re.find(file_number)
                 .map(|m| m.as_str())
@@ -2731,9 +2750,66 @@ mod parser_fix_tests {
         assert_eq!(result6.id, "RCT-515", "Attached disc C not extracted");
         assert_eq!(result6.part_number, Some(3), "Disc C part number wrong");
 
-        // Test 7: Separated -C suffix (should NOT be extracted, it's Chinese subtitle)
+        // Test 7: Separated -C suffix is for Chinese subtitles, NOT part number
+        // Only attached C (like RCT515C) is treated as part 3
         let result7 = parse_number("IPZZ-227-C.mp4", None).unwrap();
-        assert_eq!(result7.id, "IPZZ-227", "-C suffix should be handled as Chinese subtitle");
-        assert!(result7.attributes.cn_sub, "Chinese subtitle not detected");
+        assert_eq!(result7.id, "IPZZ-227", "-C suffix should be stripped");
+        assert_eq!(result7.part_number, None, "Separated -C should not be part number");
+        assert!(result7.attributes.cn_sub, "Separated -C should be Chinese subtitle marker");
+    }
+
+    #[test]
+    fn test_prioritize_standard_format_over_bare_number() {
+        // User's specific case: domain with space + bare number before standard ID
+        let result = get_number("madoubt.com 935838.xyz HMN-784.mp4", None).unwrap();
+        assert_eq!(result, "HMN-784", "Should extract HMN-784, not 935838");
+
+        // Bare number before standard format
+        let result2 = get_number("123456 SSIS-789.mp4", None).unwrap();
+        assert_eq!(result2, "SSIS-789", "Should prioritize SSIS-789 over 123456");
+
+        // Hyphenated bare number before standard format
+        let result3 = get_number("999999-ABC-123.mp4", None).unwrap();
+        assert_eq!(result3, "ABC-123", "Should extract ABC-123, not 999999");
+    }
+
+    #[test]
+    fn test_domain_with_space_stripping() {
+        // Domain with space instead of hyphen
+        let result = get_number("site.xyz HMN-784.mp4", None).unwrap();
+        assert_eq!(result, "HMN-784", "Domain with space should be stripped");
+
+        let result2 = get_number("domain.com ABC-123.mp4", None).unwrap();
+        assert_eq!(result2, "ABC-123", "Domain with space should be stripped");
+
+        // Domain with space and prefix
+        let result3 = get_number("test.me SSIS-456.mp4", None).unwrap();
+        assert_eq!(result3, "SSIS-456", "Domain prefix with space should be stripped");
+    }
+
+    #[test]
+    fn test_fallback_to_bare_number_when_no_standard_format() {
+        // Ensure we don't break existing behavior when there's no standard format
+        let result = get_number("123456.mp4", None).unwrap();
+        assert_eq!(result, "123456", "Should fall back to bare number");
+
+        // FC2 should still work (special site rule takes priority)
+        let result2 = get_number("FC2-PPV-123456.mp4", None).unwrap();
+        assert_eq!(result2, "FC2-PPV-123456", "FC2 format should still work");
+
+        // Carib format should still work
+        let result3 = get_number("carib-123456-789.mp4", None).unwrap();
+        assert_eq!(result3, "123456-789", "Carib format should still work");
+    }
+
+    #[test]
+    fn test_multiple_standard_formats_first_wins() {
+        // If multiple standard formats exist, take first one
+        let result = get_number("ABC-123 XYZ-456.mp4", None).unwrap();
+        assert_eq!(result, "ABC-123", "Should extract first standard format");
+
+        // Mixed: standard format after bare number (standard should win)
+        let result2 = get_number("999 IPX-789.mp4", None).unwrap();
+        assert_eq!(result2, "IPX-789", "Standard format should win over bare number");
     }
 }
