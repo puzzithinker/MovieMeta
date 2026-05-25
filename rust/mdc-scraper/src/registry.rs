@@ -398,6 +398,26 @@ impl ScraperRegistry {
     pub fn set_default_sources(&mut self, sources: Vec<String>) {
         self.default_sources = self.validate_sources(sources);
     }
+
+    /// Map special_site to a preferred source list for targeted scraping
+    ///
+    /// When a special_site is detected during number parsing, this method returns
+    /// the most appropriate scrapers for that content type, avoiding wasted attempts
+    /// on irrelevant sources.
+    pub fn suggested_sources(&self, special_site: Option<&str>) -> Option<Vec<String>> {
+        match special_site {
+            Some("fc2") => Some(vec!["fc2".to_string()]),
+            Some("tokyo-hot") => Some(vec!["tokyohot".to_string()]),
+            Some("carib") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
+            Some("1pon") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
+            Some("heyzo") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
+            Some("okp") => Some(vec!["javbus".to_string(), "javdb".to_string(), "mgstage".to_string()]),
+            Some("mura") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
+            Some("paco") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
+            Some("10mu") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
+            _ => None,
+        }
+    }
 }
 
 impl Default for ScraperRegistry {

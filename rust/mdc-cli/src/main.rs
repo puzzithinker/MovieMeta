@@ -333,8 +333,10 @@ async fn main() -> Result<()> {
         2 => ProcessingMode::Organizing,
         3 => ProcessingMode::Analysis,
         _ => {
-            eprintln!("Invalid mode: {}. Must be 1, 2, or 3.", cli.mode);
-            std::process::exit(1);
+            return Err(anyhow::anyhow!(
+                "Invalid mode: {}. Must be 1, 2, or 3.",
+                cli.mode
+            ));
         }
     };
 
@@ -344,8 +346,10 @@ async fn main() -> Result<()> {
         1 => LinkMode::SoftLink,
         2 => LinkMode::HardLink,
         _ => {
-            eprintln!("Invalid link mode: {}. Must be 0, 1, or 2.", cli.link_mode);
-            std::process::exit(1);
+            return Err(anyhow::anyhow!(
+                "Invalid link mode: {}. Must be 0, 1, or 2.",
+                cli.link_mode
+            ));
         }
     };
 
@@ -380,14 +384,9 @@ async fn main() -> Result<()> {
 
     // If no path provided, show help
     if cli.path.is_none() {
-        eprintln!("Error: No path provided");
-        eprintln!("\nUsage: mdc <PATH> [OPTIONS]");
-        eprintln!("\nExamples:");
-        eprintln!("  mdc /path/to/movie.mp4");
-        eprintln!("  mdc /path/to/movies -s -m 1");
-        eprintln!("  mdc /path/to/movie.mp4 -n MOVIE-001");
-        eprintln!("\nUse --help for more information");
-        std::process::exit(1);
+        return Err(anyhow::anyhow!(
+            "No path provided\n\nUsage: mdc <PATH> [OPTIONS]\n\nExamples:\n  mdc /path/to/movie.mp4\n  mdc /path/to/movies -s -m 1\n  mdc /path/to/movie.mp4 -n MOVIE-001\n\nUse --help for more information"
+        ));
     }
 
     let source_path = cli.path.unwrap();
@@ -434,8 +433,10 @@ async fn main() -> Result<()> {
         // Single file processing
         vec![source_path.clone()]
     } else {
-        eprintln!("Error: Path does not exist: {}", source_path.display());
-        std::process::exit(1);
+        return Err(anyhow::anyhow!(
+            "Path does not exist: {}",
+            source_path.display()
+        ));
     };
 
     if files.is_empty() {
@@ -502,13 +503,16 @@ async fn main() -> Result<()> {
         let scraper_config_clone = scraper_config.clone();
 
         async move {
+            // Use suggested sources if special_site was detected, otherwise try all defaults
+            let sources = registry_clone.suggested_sources(dual_id.special_site.as_deref());
+
             // Use search_with_ids() to pass both display and content IDs
             // Each scraper will receive the ID format it prefers
             match registry_clone
                 .search_with_ids(
                     &dual_id.display,
                     &dual_id.content,
-                    None,
+                    sources,
                     &scraper_config_clone,
                 )
                 .await?
@@ -520,9 +524,12 @@ async fn main() -> Result<()> {
                     Ok(json)
                 }
                 None => Err(anyhow::anyhow!(
-                    "No metadata found for {}/{}",
+                    "No metadata found for {}/{}{}",
                     dual_id.display,
-                    dual_id.content
+                    dual_id.content,
+                    dual_id.special_site
+                        .map(|s| format!(" [{}]", s))
+                        .unwrap_or_default()
                 )),
             }
         }

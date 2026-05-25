@@ -15,10 +15,30 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 
 /// Build the API router with all routes
 pub fn create_router() -> Router {
+    // Restrict CORS: allow any origin in development, but only same-origin in production
+    // Override with CORS_ORIGIN env var for specific domains (comma-separated)
+    let cors = match std::env::var("CORS_ORIGIN") {
+        Ok(origins) if !origins.is_empty() => {
+            let allowed: Vec<_> = origins
+                .split(',')
+                .filter_map(|o| o.trim().parse().ok())
+                .collect();
+            if allowed.is_empty() {
+                CorsLayer::permissive()
+            } else {
+                CorsLayer::new()
+                    .allow_origin(allowed)
+                    .allow_methods(Any)
+                    .allow_headers(Any)
+            }
+        }
+        _ => CorsLayer::permissive(),
+    };
+
     Router::new()
         // Health check
         .route("/health", get(handlers::health))
@@ -38,7 +58,7 @@ pub fn create_router() -> Router {
         // WebSocket for progress updates
         .route("/ws/progress", get(websocket::ws_handler))
         // Add CORS middleware
-        .layer(CorsLayer::permissive())
+        .layer(cors)
 }
 
 /// Start the API server
