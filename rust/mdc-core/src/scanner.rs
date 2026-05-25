@@ -7,9 +7,12 @@ use anyhow::{anyhow, Result};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::SystemTime;
 use tokio::fs;
 use walkdir::WalkDir;
+
+static TRAILER_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Scanner configuration
 #[derive(Debug, Clone)]
@@ -214,7 +217,7 @@ impl Scanner {
         };
 
         // Trailer regex
-        let trailer_regex = Regex::new(r"(?i)-trailer\.").unwrap();
+        let trailer_regex = TRAILER_REGEX.get_or_init(|| Regex::new(r"(?i)-trailer\.").unwrap());
 
         // Escape folder set
         let escape_set: HashSet<String> = self

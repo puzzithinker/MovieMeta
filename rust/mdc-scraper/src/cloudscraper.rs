@@ -222,7 +222,7 @@ impl CloudScraperClient {
             .args(&["-c", "import cloudscraper"])
             .output();
 
-        module_check.is_ok() && module_check.unwrap().status.success()
+        module_check.is_ok() && module_check.as_ref().map(|o| o.status.success()).unwrap_or(false)
     }
 }
 

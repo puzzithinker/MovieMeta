@@ -32,6 +32,8 @@ pub struct DualId {
     pub display: String,
     /// Content format (e.g., "ssis00123")
     pub content: String,
+    /// Special site detected during parsing (e.g., "fc2", "tokyo-hot")
+    pub special_site: Option<String>,
 }
 
 /// Batch processor for concurrent movie processing
@@ -80,6 +82,7 @@ impl BatchProcessor {
         let dual_id = DualId {
             display: parsed.id.clone(),
             content: parsed.content_id.clone(),
+            special_site: parsed.attributes.special_site.clone(),
         };
         let number_display = parsed.id.clone();
 
@@ -143,7 +146,17 @@ impl BatchProcessor {
             let progress = progress_callback.clone();
 
             let task = tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
+                let _permit = match sem.acquire().await {
+                    Ok(p) => p,
+                    Err(_) => {
+                        return ProcessingResult {
+                            file_path,
+                            success: false,
+                            number: None,
+                            error: Some("Semaphore closed".to_string()),
+                        };
+                    }
+                };
 
                 let result = processor.process_file(file_path, meta_provider).await;
 

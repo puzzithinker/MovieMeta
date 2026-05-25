@@ -222,7 +222,10 @@ impl ScraperClient {
 
 impl Default for ScraperClient {
     fn default() -> Self {
-        Self::new().expect("Failed to create default ScraperClient")
+        Self::new().unwrap_or_else(|e| {
+            tracing::error!("Failed to create default ScraperClient: {}", e);
+            panic!("ScraperClient creation failed - check network/TLS configuration")
+        })
     }
 }
 

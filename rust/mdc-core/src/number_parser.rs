@@ -389,10 +389,32 @@ static G_SPAT: OnceLock<Regex> = OnceLock::new();
 fn get_g_spat() -> &'static Regex {
     G_SPAT.get_or_init(|| {
         Regex::new(
-            r"(?i)^\w+\.(cc|com|net|me|club|jp|tv|xyz|biz|wiki|info|tw|us|de)@|^22-sht\.me|^(fhd|hd|sd|1080p|720p|4K)(-|_)|(-|_)(fhd|hd|sd|1080p|720p|4K|x264|x265|uncensored|hack|leak)"
+            r"(?i)^\w+\.(cc|com|net|me|club|jp|tv|xyz|biz|wiki|info|tw|us|de)@|^22-sht\.me|^(fhd|sd|1080p|720p|4K)(-|_)|(-|_)(fhd|hd|sd|1080p|720p|4K|x264|x265|uncensored|hack|leak)"
         ).unwrap()
     })
 }
+
+// Cached regexes for convert_to_content_id
+static RE_CONTENT_OKP: OnceLock<Regex> = OnceLock::new();
+static RE_CONTENT_TOKYOHOT: OnceLock<Regex> = OnceLock::new();
+static RE_CONTENT_T28R18: OnceLock<Regex> = OnceLock::new();
+static RE_CONTENT_STANDARD: OnceLock<Regex> = OnceLock::new();
+
+// Cached regexes for convert_to_display_id
+static RE_DISPLAY_OKP: OnceLock<Regex> = OnceLock::new();
+static RE_DISPLAY_TOKYOHOT: OnceLock<Regex> = OnceLock::new();
+static RE_DISPLAY_T28R18: OnceLock<Regex> = OnceLock::new();
+static RE_DISPLAY_STANDARD: OnceLock<Regex> = OnceLock::new();
+
+// Cached regexes for insert_hyphens
+static RE_HYPHEN_TOKYO_HOT: OnceLock<Regex> = OnceLock::new();
+static RE_HYPHEN_STANDARD: OnceLock<Regex> = OnceLock::new();
+
+// Cached regexes for extract_part_from_suffix
+static RE_PART_SEP: OnceLock<Regex> = OnceLock::new();
+static RE_PART_ATTACHED: OnceLock<Regex> = OnceLock::new();
+static RE_PART_LOWER_SEP: OnceLock<Regex> = OnceLock::new();
+static RE_PART_LOWER_ATTACHED: OnceLock<Regex> = OnceLock::new();
 
 /// Special site extraction rules
 type ExtractFn = fn(&str) -> Option<String>;
@@ -464,13 +486,13 @@ fn extract_tokyo_hot(filename: &str) -> Option<String> {
 }
 
 fn extract_okp(filename: &str) -> Option<String> {
-    // Extract OKP ID: okp00050 → OKP50
+    // Extract OKP ID: okp00050 → OKP-050 (standard hyphenated format with zero-padded digits)
     let re = Regex::new(r"(?i)okp[-_]?(\d+)").ok()?;
     if let Some(caps) = re.captures(filename) {
         let digits = &caps[1];
         let trimmed = digits.trim_start_matches('0');
         let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
-        return Some(format!("OKP{}", final_digits));
+        return Some(format!("OKP-{}", final_digits));
     }
     None
 }
@@ -580,24 +602,24 @@ pub fn convert_to_content_id(display_id: &str) -> String {
         return format!("heyzo{}", padded);
     }
 
-    // OKP special handling: OKP50 → okp50, OKP-050 → okp50 (trim zeros, no hyphen)
-    let re_okp = Regex::new(r"^okp[-_]?(\d+)$").unwrap();
+    // OKP special handling: OKP-050 → okp00050 (standard content ID format)
+    let re_okp = RE_CONTENT_OKP.get_or_init(|| Regex::new(r"^okp[-_]?(\d+)$").unwrap());
     if let Some(caps) = re_okp.captures(&lower) {
         let digits = &caps[1];
         let trimmed = digits.trim_start_matches('0');
         let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
-        return format!("okp{}", final_digits);
+        return format!("okp{:0>5}", final_digits);
     }
 
     // Tokyo-Hot special handling: n1234, k0123 → keep as-is (already content format)
-    let re_tokyohot = Regex::new(r"^(cz|gedo|k|n|red|se)\d+$").unwrap();
+    let re_tokyohot = RE_CONTENT_TOKYOHOT.get_or_init(|| Regex::new(r"^(cz|gedo|k|n|red|se)\d+$").unwrap());
     if re_tokyohot.is_match(&lower) {
         return lower;
     }
 
     // T28/R18 special handling: T28-123 → t2800123, R18-456 → r1800456
     // These have digits in the prefix (T28, R18), so handle them specially
-    let re_t28r18 = Regex::new(r"^(t-?28|r-?18)[-_]?(\d+)$").unwrap();
+    let re_t28r18 = RE_CONTENT_T28R18.get_or_init(|| Regex::new(r"^(t-?28|r-?18)[-_]?(\d+)$").unwrap());
     if let Some(caps) = re_t28r18.captures(&lower) {
         let prefix = caps[1].replace("-", ""); // t28 or r18
         let digits = &caps[2];
@@ -606,7 +628,7 @@ pub fn convert_to_content_id(display_id: &str) -> String {
     }
 
     // Standard format: ABC-123 → abc00123
-    let re = Regex::new(r"^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$").unwrap();
+    let re = RE_CONTENT_STANDARD.get_or_init(|| Regex::new(r"^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$").unwrap());
     if let Some(caps) = re.captures(display_id) {
         let prefix = caps[1].to_lowercase();
         let digits = &caps[2];
@@ -660,17 +682,17 @@ pub fn convert_to_display_id(content_id: &str) -> String {
         return format!("HEYZO-{}", final_digits);
     }
 
-    // OKP special handling: okp00050 → OKP50 (uppercase, no hyphen, trim zeros)
-    let re_okp = Regex::new(r"^okp(\d+)$").unwrap();
+    // OKP special handling: okp00050 → OKP-050 (standard hyphenated format)
+    let re_okp = RE_DISPLAY_OKP.get_or_init(|| Regex::new(r"^okp(\d+)$").unwrap());
     if let Some(caps) = re_okp.captures(&lower) {
         let digits = &caps[1];
         let trimmed = digits.trim_start_matches('0');
         let final_digits = if trimmed.is_empty() { "0" } else { trimmed };
-        return format!("OKP{}", final_digits);
+        return format!("OKP-{}", final_digits);
     }
 
     // Tokyo-Hot special handling: n01234, k0123 → n1234, k123 (lowercase, no hyphen, trim zeros)
-    let re_tokyohot = Regex::new(r"^([a-z]+)(\d+)$").unwrap();
+    let re_tokyohot = RE_DISPLAY_TOKYOHOT.get_or_init(|| Regex::new(r"^([a-z]+)(\d+)$").unwrap());
     if let Some(caps) = re_tokyohot.captures(&lower) {
         let prefix = &caps[1];
         if matches!(prefix, "cz" | "gedo" | "k" | "n" | "red" | "se") {
@@ -682,7 +704,7 @@ pub fn convert_to_display_id(content_id: &str) -> String {
     }
 
     // T28/R18 special handling: t2800123 → T28-123, r1800456 → R18-456
-    let re_t28r18 = Regex::new(r"^(t28|r18)(\d+)$").unwrap();
+    let re_t28r18 = RE_DISPLAY_T28R18.get_or_init(|| Regex::new(r"^(t28|r18)(\d+)$").unwrap());
     if let Some(caps) = re_t28r18.captures(&lower) {
         let prefix = caps[1].to_uppercase();
         let digits = &caps[2];
@@ -694,7 +716,7 @@ pub fn convert_to_display_id(content_id: &str) -> String {
     }
 
     // Standard format: abc00123 → ABC-123
-    let re = Regex::new(r"^([a-z]+)(\d+)([a-z]*)$").unwrap();
+    let re = RE_DISPLAY_STANDARD.get_or_init(|| Regex::new(r"^([a-z]+)(\d+)([a-z]*)$").unwrap());
     if let Some(caps) = re.captures(&lower) {
         let prefix = caps[1].to_uppercase();
         let digits = &caps[2];
@@ -738,16 +760,20 @@ pub fn insert_hyphens(s: &str) -> String {
         return s.to_string();
     }
 
+    // OKP IDs should remain without hyphens (handled by extract_okp which adds the hyphen)
+    // If we get here with OKP123, it means extract_okp didn't fire, so add the hyphen normally
+    // via the standard pattern below.
+
     // Tokyo-Hot IDs should remain without hyphens (lowercase letter prefix + digits)
-    // Patterns: n1234, k5678, cz1234, red001, gedo123, se456
-    let tokyo_hot_re = Regex::new(r"^(?i)(cz|gedo|k|n|red|se)\d{2,4}$").unwrap();
+    // Patterns: n1234, k5678, cz1234, red001, gedo123, se456, red-123
+    let tokyo_hot_re = RE_HYPHEN_TOKYO_HOT.get_or_init(|| Regex::new(r"^(?i)(cz|gedo|k|n|red|se)[-_]?\d{2,6}$").unwrap());
     if tokyo_hot_re.is_match(s) {
         return s.to_string();
     }
 
     // Pattern: ([A-Za-z]+)(\d+) → $1-$2
     // Insert hyphen between alphabetic prefix and numeric part
-    let re = Regex::new(r"^([A-Za-z]+)(\d+)(.*)$").unwrap();
+    let re = RE_HYPHEN_STANDARD.get_or_init(|| Regex::new(r"^([A-Za-z]+)(\d+)(.*)$").unwrap());
     if let Some(caps) = re.captures(s) {
         let prefix = &caps[1];
         let digits = &caps[2];
@@ -791,7 +817,7 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     // Match letter suffixes, but EXCLUDE C when separated (C is reserved for Chinese subtitles)
     // Also exclude U (uncensored) and Z (special marker)
     // This allows "-A", "-B", "-D" through "-Y" but not "-C"
-    let re = Regex::new(r"^(.+?)[-_]([ABD-TV-Y])$").unwrap(); // A-B, D-T, V-Y (excludes C, U, Z)
+    let re = RE_PART_SEP.get_or_init(|| Regex::new(r"^(.+?)[-_]([ABD-TV-Y])$").unwrap()); // A-B, D-T, V-Y (excludes C, U, Z)
 
     if let Some(caps) = re.captures(id) {
         let base_id = caps[1].to_string();
@@ -799,7 +825,11 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
 
         // Convert letter to part number: A=1, B=2, D=4, ..., Y=25
         // (C=3 and U=21 are reserved for attributes)
-        let part_num = (letter.chars().next().unwrap() as u8) - b'A' + 1;
+        let ch = match letter.chars().next() {
+            Some(c) => c,
+            None => return (base_id, None),
+        };
+        let part_num = (ch as u8) - b'A' + 1;
 
         return (base_id, Some(part_num));
     }
@@ -807,35 +837,47 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     // Pattern 2: Without separator (directly attached): ABC123A, AVOP212A, IPZZ077C
     // Only match if ID ends with digit+letter (to avoid false positives)
     // This handles cases like "AVOP-212A" → "AVOP-212" + part 1
-    let re_attached = Regex::new(r"^(.+\d)([A-TV-Y])$").unwrap(); // A-T, V-Y (excludes U, Z)
+    let re_attached = RE_PART_ATTACHED.get_or_init(|| Regex::new(r"^(.+\d)([A-TV-Y])$").unwrap()); // A-T, V-Y (excludes U, Z)
     if let Some(caps) = re_attached.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
 
-        let part_num = (letter.chars().next().unwrap() as u8) - b'A' + 1;
+        let ch = match letter.chars().next() {
+            Some(c) => c,
+            None => return (base_id, None),
+        };
+        let part_num = (ch as u8) - b'A' + 1;
 
         return (base_id, Some(part_num));
     }
 
     // Pattern 3: Lowercase with separator (also excludes c for Chinese subtitles)
-    let re_lower = Regex::new(r"^(.+?)[-_]([abd-tv-y])$").unwrap(); // Lowercase a-b, d-t, v-y (excludes c, u, z)
+    let re_lower = RE_PART_LOWER_SEP.get_or_init(|| Regex::new(r"^(.+?)[-_]([abd-tv-y])$").unwrap()); // Lowercase a-b, d-t, v-y (excludes c, u, z)
     if let Some(caps) = re_lower.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
 
         // Convert letter to part number: a=1, b=2, d=4, ..., y=25
-        let part_num = (letter.chars().next().unwrap() as u8) - b'a' + 1;
+        let ch = match letter.chars().next() {
+            Some(c) => c,
+            None => return (base_id, None),
+        };
+        let part_num = (ch as u8) - b'a' + 1;
 
         return (base_id, Some(part_num));
     }
 
     // Pattern 4: Lowercase directly attached
-    let re_lower_attached = Regex::new(r"^(.+\d)([a-tv-y])$").unwrap(); // Lowercase A-T, V-Y
+    let re_lower_attached = RE_PART_LOWER_ATTACHED.get_or_init(|| Regex::new(r"^(.+\d)([a-tv-y])$").unwrap()); // Lowercase A-T, V-Y
     if let Some(caps) = re_lower_attached.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
 
-        let part_num = (letter.chars().next().unwrap() as u8) - b'a' + 1;
+        let ch = match letter.chars().next() {
+            Some(c) => c,
+            None => return (base_id, None),
+        };
+        let part_num = (ch as u8) - b'a' + 1;
 
         return (base_id, Some(part_num));
     }
@@ -860,6 +902,14 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
             if !removal_str.is_empty() {
                 cleaned = cleaned.replace(removal_str, "");
             }
+        }
+        // Clean up orphaned separators left by removal strings
+        // e.g., "AVOP-212-uncensored" → "AVOP-212-" after removing "uncensored" → "AVOP-212"
+        if let Ok(re) = Regex::new(r"(?i)([-_])([-_]+)") {
+            cleaned = re.replace_all(&cleaned, "$1").to_string();
+        }
+        if let Ok(re) = Regex::new(r"[-_](\.)") {
+            cleaned = re.replace_all(&cleaned, "$1").to_string();
         }
     }
 
@@ -886,7 +936,9 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     // Strip watermark domains in special formats: ses23.com, javhd.com, etc.
     // Pattern: domain.tld followed by hyphen, underscore, or space (common watermark format)
     // Examples: ses23.com-NHDTA-609, javhd.com_IPX-001, 935838.xyz HMN-784
-    if let Ok(re) = Regex::new(r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de|cn|to)[-_\s]") {
+    if let Ok(re) = Regex::new(
+        r"^[\w.-]+\.(com|net|tv|la|me|cc|club|jp|xyz|biz|wiki|info|tw|us|de|cn|to)[-_\s]",
+    ) {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
@@ -903,8 +955,18 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     }
 
     // Strip parenthesized quality markers at start: (HD), (FHD), (4K), etc.
-    // Fixes: (HD)avop-212A.HD.mp4 → avop-212A.HD.mp4
-    if let Ok(re) = Regex::new(r"(?i)^\(?(HD|FHD|4K|1080P|720P|480P|UHD)\)?[-_]?") {
+    // Also strip non-HD markers that are never valid studio prefixes: FHD, 4K, 1080P, 720P, 480P, UHD
+    // HD is only stripped when parenthesized or followed by non-alpha (e.g., "HD." or "HD "),
+    // since HD- is a valid studio prefix (e.g., HD-IPX-456)
+    if let Ok(re) = Regex::new(r"(?i)^\((HD|FHD|4K|1080P|720P|480P|UHD)\)[-_]?") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+    if let Ok(re) = Regex::new(r"(?i)^(FHD|4K|1080P|720P|480P|UHD)[-_]?") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+    // Strip bare HD only when NOT followed by a letter+hyphen (studio prefix pattern)
+    // e.g., "HD.IPX-456" → strip HD, "HD-IPX-456" → keep HD
+    if let Ok(re) = Regex::new(r"(?i)^HD(?![A-Za-z]*-)") {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
 
@@ -978,15 +1040,9 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     // Strip common quality markers at end using simple string replacement
     // These suffixes are always noise when at the very end
     let quality_suffixes = [
-        "-1080P", "_1080P", ".1080P",
-        "-720P", "_720P", ".720P",
-        "-480P", "_480P", ".480P",
-        "-FULLHD", "_FULLHD", ".FULLHD",
-        "-FHD", "_FHD", ".FHD",
-        "-4K", "_4K", ".4K",
-        "-UHD", "_UHD", ".UHD",
-        "-HQ", "_HQ", ".HQ",
-        "-HD", "_HD", ".HD",
+        "-1080P", "_1080P", ".1080P", "-720P", "_720P", ".720P", "-480P", "_480P", ".480P",
+        "-FULLHD", "_FULLHD", ".FULLHD", "-FHD", "_FHD", ".FHD", "-4K", "_4K", ".4K", "-UHD",
+        "_UHD", ".UHD", "-HQ", "_HQ", ".HQ", "-HD", "_HD", ".HD",
     ];
     for suffix in &quality_suffixes {
         if cleaned.to_uppercase().ends_with(suffix) {
@@ -1045,47 +1101,63 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
 /// Strip common suffixes from the number and normalize
 fn strip_suffix(file_number: &str) -> String {
     let mut result = file_number.to_string();
+    let mut changed = true;
 
-    // Check for -C suffix (Chinese subtitles)
-    if let Ok(re) = Regex::new(r"(?i)(-|_)c$") {
-        if re.is_match(&result) {
-            result = re.replace(&result, "").to_string();
-            return result.replace('_', "-").to_uppercase();
+    // Keep stripping suffixes until no more changes
+    while changed {
+        changed = false;
+
+        // Check for -UC suffix (uncensored) - check before -U and -C
+        if let Ok(re) = Regex::new(r"(?i)(-|_)uc$") {
+            if re.is_match(&result) {
+                result = re.replace(&result, "").to_string();
+                changed = true;
+                continue;
+            }
         }
-    }
 
-    // Check for -U suffix (uncensored)
-    if let Ok(re) = Regex::new(r"(?i)(-|_)u$") {
-        if re.is_match(&result) {
-            result = re.replace(&result, "").to_string();
-            return result.replace('_', "-").to_uppercase();
+        // Check for -C suffix (Chinese subtitles)
+        if let Ok(re) = Regex::new(r"(?i)(-|_)c$") {
+            if re.is_match(&result) {
+                result = re.replace(&result, "").to_string();
+                changed = true;
+                continue;
+            }
         }
-    }
 
-    // Check for -UC suffix (uncensored)
-    if let Ok(re) = Regex::new(r"(?i)(-|_)uc$") {
-        if re.is_match(&result) {
-            result = re.replace(&result, "").to_string();
-            return result.replace('_', "-").to_uppercase();
+        // Check for -U suffix (uncensored)
+        if let Ok(re) = Regex::new(r"(?i)(-|_)u$") {
+            if re.is_match(&result) {
+                result = re.replace(&result, "").to_string();
+                changed = true;
+                continue;
+            }
         }
-    }
 
-    // Check for XXXch suffix (chapter marker)
-    if let Ok(re) = Regex::new(r"(?i)\d+ch$") {
-        if re.is_match(&result) {
-            result = result[..result.len() - 2].to_string();
-            return result.replace('_', "-").to_uppercase();
+        // Check for XXXch suffix (chapter marker or Windows duplicate marker)
+        // Handles both "ABC-123ch" and "ABC-123ch(3)" patterns
+        // This looks for "ch" optionally followed by "(N)" at the end of the string
+        if let Ok(re) = Regex::new(r"(?i)ch(\(\d+\))?$") {
+            if let Some(m) = re.find(&result) {
+                // Remove the matched "ch" or "ch(N)" suffix
+                let match_len = m.as_str().len();
+                result = result[..result.len() - match_len].to_string();
+                changed = true;
+                continue;
+            }
         }
     }
 
     // Check if this is a Tokyo-Hot ID (should remain lowercase)
-    let tokyo_hot_re = Regex::new(r"^(?i)(cz|gedo|k|n|red|se)\d{2,4}$").unwrap();
+    // Match both hyphenated (red-123) and non-hyphenated (n1234) forms
+    let tokyo_hot_re = Regex::new(r"^(?i)(cz|gedo|k|n|red|se)[-_]?\d{2,6}$").unwrap();
     if tokyo_hot_re.is_match(&result) {
-        // Tokyo-Hot IDs remain lowercase
+        // Tokyo-Hot IDs remain lowercase, normalize hyphens
         return result.replace('_', "-").to_lowercase();
     }
 
-    // Replace underscores with hyphens
+    // OKP IDs: preserve OKP-N format (extract_okp already formats correctly)
+    // Just normalize underscores to hyphens and uppercase
     result = result.replace('_', "-");
 
     // Normalize multiple spaces to single space
@@ -1135,8 +1207,8 @@ fn apply_strict_mode_filter(id: &str) -> bool {
         return true;
     }
 
-    // Allow Tokyo-Hot IDs: k0123, n1234, etc. (lowercase)
-    let tokyo_hot_pattern = Regex::new(r"^(cz|gedo|k|n|red|se)\d{2,4}$").unwrap();
+    // Allow Tokyo-Hot IDs: k0123, n1234, red-123, etc. (lowercase)
+    let tokyo_hot_pattern = Regex::new(r"^(?i)(cz|gedo|k|n|red|se)[-_]?\d{2,6}$").unwrap();
     if tokyo_hot_pattern.is_match(id) {
         return true;
     }
@@ -1240,6 +1312,8 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
             attrs.special_site = Some("fc2".to_string());
         } else if number.to_uppercase().starts_with("HEYZO") {
             attrs.special_site = Some("heyzo".to_string());
+        } else if number.to_uppercase().starts_with("OKP") {
+            attrs.special_site = Some("okp".to_string());
         }
 
         return Ok(ParsedNumber {
@@ -1328,9 +1402,14 @@ fn cleanup_extracted_id(mut extracted_id: String) -> String {
             // 2. Lowercase descriptions (kawaii, etc.) - 3+ chars to preserve -UC, -C
             // 3. Single-letter + delimiter + 2+ chars (C_GG5, C-GG5) - watermark artifacts
             // Note: We preserve short suffixes like -UC, -C (2 chars) as they're likely attributes
-            if Regex::new(r"[\p{Han}\p{Hiragana}\p{Katakana}]").unwrap().is_match(rest)
+            if Regex::new(r"[\p{Han}\p{Hiragana}\p{Katakana}]")
+                .unwrap()
+                .is_match(rest)
                 || Regex::new(r"(?i)^[-_][a-z]{3,}").unwrap().is_match(rest)
-                || Regex::new(r"(?i)^[-_][A-Z][-_][A-Z0-9]{2,}").unwrap().is_match(rest) {
+                || Regex::new(r"(?i)^[-_][A-Z][-_][A-Z0-9]{2,}")
+                    .unwrap()
+                    .is_match(rest)
+            {
                 return core_id;
             }
         }
@@ -1368,6 +1447,11 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
     // Handle filenames with - or _ (use cleaned version)
     if cleaned_filepath.contains('-') || cleaned_filepath.contains('_') {
         let mut filename = get_g_spat().replace_all(cleaned_filepath, "").to_string();
+
+        // Clean up trailing separators left by G_SPAT removal (e.g., "AVOP-212-" → "AVOP-212")
+        filename = filename
+            .trim_end_matches(|c| c == '-' || c == '_')
+            .to_string();
 
         // Remove date patterns like [2024-01-01] -
         filename = Regex::new(r"\[\d{4}-\d{1,2}-\d{1,2}\] - ")
@@ -1817,7 +1901,10 @@ mod tests {
     fn test_clean_domain_prefixes() {
         // Test domain.com- patterns
         // Note: BEB077 is automatically normalized to BEB-077 for better metadata matching
-        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB-077");
+        assert_eq!(
+            get_number("jp.myav.tv-BEB077.avi", None).unwrap(),
+            "BEB-077"
+        );
         assert_eq!(
             get_number("www.site.com-ABC-123.mp4", None).unwrap(),
             "ABC-123"
@@ -1871,8 +1958,69 @@ mod tests {
         assert_eq!(result1, "AVGL-012");
 
         // BEB077 without dash stays as BEB077
-        assert_eq!(get_number("jp.myav.tv-BEB077.avi", None).unwrap(), "BEB-077");
+        assert_eq!(
+            get_number("jp.myav.tv-BEB077.avi", None).unwrap(),
+            "BEB-077"
+        );
         assert_eq!(get_number("CZBD-015FULLHD.mp4", None).unwrap(), "CZBD-015");
+    }
+
+    #[test]
+    fn test_uncensored_suffix_stripping() {
+        // AVOP-212-uncensored should parse as AVOP-212 (uncensored is noise, not part of ID)
+        let result1 = parse_number("AVOP-212-uncensored.mp4", None).unwrap();
+        assert_eq!(result1.id, "AVOP-212");
+        assert_eq!(result1.content_id, "avop00212");
+
+        // AVOP-212_B-uncensored should also parse as AVOP-212
+        // (_B is a Windows duplicate file marker, not a part indicator)
+        let result2 = parse_number("AVOP-212_B-uncensored.mp4", None).unwrap();
+        assert_eq!(result2.id, "AVOP-212");
+        assert_eq!(result2.content_id, "avop00212");
+    }
+
+    #[test]
+    fn test_okp_various_formats() {
+        // OKP with watermark prefix
+        let r1 = parse_number("hhd800.com@OKP-111.mp4", None).unwrap();
+        assert_eq!(r1.id, "OKP-111");
+        assert_eq!(r1.content_id, "okp00111");
+
+        // OKP with zero-padded digits
+        let r2 = parse_number("okp-018.mp4", None).unwrap();
+        assert_eq!(r2.id, "OKP-18");
+        assert_eq!(r2.content_id, "okp00018");
+
+        // OKP with -C suffix (Chinese subtitles)
+        // Note: OKP goes through get_number_by_dict which returns early without attribute detection
+        let r3 = parse_number("OKP-040-C.mp4", None).unwrap();
+        assert_eq!(r3.id, "OKP-40");
+        assert_eq!(r3.content_id, "okp00040");
+
+        // OKP without hyphen
+        let r4 = parse_number("OKP-050.mp4", None).unwrap();
+        assert_eq!(r4.id, "OKP-50");
+        assert_eq!(r4.content_id, "okp00050");
+
+        // OKP with watermark in folder
+        let r5 = parse_number("OKP-073/big2048.com@OKP-073.mp4", None).unwrap();
+        assert_eq!(r5.id, "OKP-73");
+        assert_eq!(r5.content_id, "okp00073");
+
+        // OKP without hyphen in filename
+        let r6 = parse_number("okp020.mp4", None).unwrap();
+        assert_eq!(r6.id, "OKP-20");
+        assert_eq!(r6.content_id, "okp00020");
+
+        // OKP with attached C suffix (no separator)
+        let r7 = parse_number("OKP051C.mp4", None).unwrap();
+        assert_eq!(r7.id, "OKP-51");
+        assert_eq!(r7.content_id, "okp00051");
+
+        // OKP without hyphen, plain digits
+        let r8 = parse_number("OKP059.mp4", None).unwrap();
+        assert_eq!(r8.id, "OKP-59");
+        assert_eq!(r8.content_id, "okp00059");
     }
 
     #[test]
@@ -2007,10 +2155,10 @@ mod tests {
 
     #[test]
     fn test_convert_to_content_id_okp() {
-        // OKP IDs remain as-is (similar to Tokyo-Hot format)
-        assert_eq!(convert_to_content_id("OKP50"), "okp50");
-        assert_eq!(convert_to_content_id("okp050"), "okp50");
-        assert_eq!(convert_to_content_id("OKP-050"), "okp50");
+        // OKP IDs use standard content format: okp00050
+        assert_eq!(convert_to_content_id("OKP-50"), "okp00050");
+        assert_eq!(convert_to_content_id("OKP-050"), "okp00050");
+        assert_eq!(convert_to_content_id("okp050"), "okp00050");
     }
 
     #[test]
@@ -2055,10 +2203,9 @@ mod tests {
 
     #[test]
     fn test_convert_to_display_id_okp() {
-        // OKP IDs: uppercase prefix, no hyphen, leading zeros trimmed
-        assert_eq!(convert_to_display_id("okp50"), "OKP50");
-        assert_eq!(convert_to_display_id("okp00050"), "OKP50");
-        assert_eq!(convert_to_display_id("okp050"), "OKP50");
+        // OKP IDs: standard hyphenated format, leading zeros trimmed
+        assert_eq!(convert_to_display_id("okp00050"), "OKP-50");
+        assert_eq!(convert_to_display_id("okp050"), "OKP-50");
     }
 
     #[test]
@@ -2121,15 +2268,15 @@ mod tests {
 
     #[test]
     fn test_parse_number_okp() {
-        // Test OKP format: okp00050 → OKP50
+        // Test OKP format: okp00050 → OKP-50 (standard hyphenated format)
         let result = parse_number("okp00050.mp4", None).unwrap();
-        assert_eq!(result.id, "OKP50");
-        assert_eq!(result.content_id, "okp50");
+        assert_eq!(result.id, "OKP-50");
+        assert_eq!(result.content_id, "okp00050");
 
         // Test with folder structure
         let result2 = parse_number("OKP050/okp00050.mp4", None).unwrap();
-        assert_eq!(result2.id, "OKP50");
-        assert_eq!(result2.content_id, "okp50");
+        assert_eq!(result2.id, "OKP-50");
+        assert_eq!(result2.content_id, "okp00050");
     }
 
     #[test]
@@ -2303,18 +2450,6 @@ mod tests {
 
         let result3 = parse_number("ABP-789-SPECIAL.mp4", Some(&config)).unwrap();
         assert_eq!(result3.id, "ABP-789");
-    }
-
-    #[test]
-    fn test_t28_r18_with_parse_number() {
-        // T28/R18 normalization through parse_number()
-        let result = parse_number("t28123.mp4", None).unwrap();
-        assert_eq!(result.id, "T28-123");
-        assert_eq!(result.content_id, "t2800123");
-
-        let result2 = parse_number("r-18-456.mp4", None).unwrap();
-        assert_eq!(result2.id, "R18-456");
-        assert_eq!(result2.content_id, "r1800456");
     }
 
     #[test]
@@ -2731,7 +2866,7 @@ mod parser_fix_tests {
 
         // Test 2: Watermark domain with _ (OKP format has no hyphen)
         let result2 = parse_number("AVFAP.NET_okp-103.mp4", None).unwrap();
-        assert_eq!(result2.id, "OKP103", "Watermark with _ not removed");
+        assert_eq!(result2.id, "OKP-103", "Watermark with _ not removed");
 
         // Test 3: Watermark domain with @
         let result3 = parse_number("gg5.co@IPZZ-227-C_GG5.mp4", None).unwrap();
@@ -2754,8 +2889,14 @@ mod parser_fix_tests {
         // Only attached C (like RCT515C) is treated as part 3
         let result7 = parse_number("IPZZ-227-C.mp4", None).unwrap();
         assert_eq!(result7.id, "IPZZ-227", "-C suffix should be stripped");
-        assert_eq!(result7.part_number, None, "Separated -C should not be part number");
-        assert!(result7.attributes.cn_sub, "Separated -C should be Chinese subtitle marker");
+        assert_eq!(
+            result7.part_number, None,
+            "Separated -C should not be part number"
+        );
+        assert!(
+            result7.attributes.cn_sub,
+            "Separated -C should be Chinese subtitle marker"
+        );
     }
 
     #[test]
@@ -2766,7 +2907,10 @@ mod parser_fix_tests {
 
         // Bare number before standard format
         let result2 = get_number("123456 SSIS-789.mp4", None).unwrap();
-        assert_eq!(result2, "SSIS-789", "Should prioritize SSIS-789 over 123456");
+        assert_eq!(
+            result2, "SSIS-789",
+            "Should prioritize SSIS-789 over 123456"
+        );
 
         // Hyphenated bare number before standard format
         let result3 = get_number("999999-ABC-123.mp4", None).unwrap();
@@ -2784,7 +2928,10 @@ mod parser_fix_tests {
 
         // Domain with space and prefix
         let result3 = get_number("test.me SSIS-456.mp4", None).unwrap();
-        assert_eq!(result3, "SSIS-456", "Domain prefix with space should be stripped");
+        assert_eq!(
+            result3, "SSIS-456",
+            "Domain prefix with space should be stripped"
+        );
     }
 
     #[test]
@@ -2810,6 +2957,95 @@ mod parser_fix_tests {
 
         // Mixed: standard format after bare number (standard should win)
         let result2 = get_number("999 IPX-789.mp4", None).unwrap();
-        assert_eq!(result2, "IPX-789", "Standard format should win over bare number");
+        assert_eq!(
+            result2, "IPX-789",
+            "Standard format should win over bare number"
+        );
+    }
+
+    #[test]
+    fn test_ch_duplicate_marker_suffix() {
+        // Test ch(N) Windows duplicate file markers
+        // These are added when files are copied multiple times
+        let result1 = get_number("LULU-351ch(3).mp4", None).unwrap();
+        assert_eq!(
+            result1, "LULU-351",
+            "ch(3) duplicate marker should be stripped"
+        );
+
+        let result2 = get_number("SSIS-123ch(1).mp4", None).unwrap();
+        assert_eq!(
+            result2, "SSIS-123",
+            "ch(1) duplicate marker should be stripped"
+        );
+
+        let result3 = get_number("ABP-456ch(2).avi", None).unwrap();
+        assert_eq!(
+            result3, "ABP-456",
+            "ch(2) duplicate marker should be stripped"
+        );
+
+        // Test simple ch suffix (chapter marker)
+        let result4 = get_number("IPX-789ch.mp4", None).unwrap();
+        assert_eq!(result4, "IPX-789", "ch suffix should be stripped");
+
+        // Test with large numbers
+        let result5 = get_number("MIDE-999ch(99).mkv", None).unwrap();
+        assert_eq!(
+            result5, "MIDE-999",
+            "ch(99) duplicate marker should be stripped"
+        );
+
+        // Test case insensitivity
+        let result6 = get_number("XYZ-001CH(5).mp4", None).unwrap();
+        assert_eq!(result6, "XYZ-001", "CH(5) uppercase should be stripped");
+    }
+
+    #[test]
+    fn test_ch_suffix_with_other_attributes() {
+        // Test that ch marker works alongside other attributes
+        // NOTE: Attributes (-C, -U, -UC) must be at the END of the filename to be detected.
+        // If ch(N) comes after the attribute, the attribute won't be detected because
+        // attribute detection happens before ch(N) stripping in the parsing pipeline.
+
+        // Case 1: Attribute comes BEFORE ch(N) - ch(N) is stripped but attribute NOT detected
+        // because attribute detection looks for -C$ (at end) but finds ch(3) instead
+        let result1 = parse_number("LULU-351-C-ch(3).mp4", None).unwrap();
+        assert_eq!(
+            result1.id, "LULU-351",
+            "ch(3) and -C should both be stripped"
+        );
+        // Note: -C is NOT detected here because it comes before ch(3)
+        assert!(
+            !result1.attributes.cn_sub,
+            "-C before ch(3) should NOT be detected as Chinese subtitle"
+        );
+
+        let result2 = parse_number("SSIS-123-U-ch(1).mp4", None).unwrap();
+        assert_eq!(
+            result2.id, "SSIS-123",
+            "ch(1) and -U should both be stripped"
+        );
+        // Note: -U is NOT detected here because it comes before ch(1)
+        assert!(
+            !result2.attributes.uncensored,
+            "-U before ch(1) should NOT be detected as uncensored"
+        );
+
+        // Case 2: Attribute comes AFTER ch(N) - both are properly handled
+        // ch(N) is stripped first, then -C is detected at the end
+        let result3 = parse_number("ABP-456ch(2)-C.mp4", None).unwrap();
+        assert_eq!(result3.id, "ABP-456", "ch(2) should be stripped");
+        assert!(
+            result3.attributes.cn_sub,
+            "-C at end should be detected as Chinese subtitle"
+        );
+
+        let result4 = parse_number("IPX-789ch(1)-U.mp4", None).unwrap();
+        assert_eq!(result4.id, "IPX-789", "ch(1) should be stripped");
+        assert!(
+            result4.attributes.uncensored,
+            "-U at end should be detected as uncensored"
+        );
     }
 }

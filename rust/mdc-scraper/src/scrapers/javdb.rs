@@ -23,9 +23,15 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use regex::Regex;
 use scraper::Html;
+use std::sync::OnceLock;
 
 use crate::metadata::MovieMetadata;
 use crate::scraper::{IdFormat, Scraper, ScraperConfig};
+
+// Cached regexes for JavDB parsing
+static RE_UID: OnceLock<Regex> = OnceLock::new();
+static RE_HREF: OnceLock<Regex> = OnceLock::new();
+static RE_CLEAN_ID: OnceLock<Regex> = OnceLock::new();
 
 /// JavDB scraper implementation
 pub struct JavdbScraper {
@@ -97,7 +103,7 @@ impl JavdbScraper {
         let html_text = html.html();
 
         // Extract all movie IDs and their corresponding links
-        let uid_re = Regex::new(r#"<div class="uid">([^<]+)</div>"#).unwrap();
+        let uid_re = RE_UID.get_or_init(|| Regex::new(r#"<div class="uid">([^<]+)</div>"#).unwrap());
 
         // Find all movie items (we'll look for the structure around uid/title)
         let mut matches = Vec::new();
@@ -142,7 +148,7 @@ impl JavdbScraper {
     /// Extract detail URL from HTML by finding the nth movie item
     fn extract_detail_url_from_html(&self, html_text: &str, index: usize) -> Result<String> {
         // Look for all hrefs in the movie list
-        let href_re = Regex::new(r#"<a[^>]+href="(/v/[^"]+)"[^>]*>"#).unwrap();
+        let href_re = RE_HREF.get_or_init(|| Regex::new(r#"<a[^>]+href="(/v/[^"]+)"[^>]*>"#).unwrap());
 
         for (count, cap) in href_re.captures_iter(html_text).enumerate() {
             if count == index {
@@ -160,7 +166,7 @@ impl JavdbScraper {
     /// Clean movie ID (remove leading zeros from number part)
     /// Example: "0123ABC-456" -> "123ABC-456"
     fn clean_movie_id(id: &str) -> Option<String> {
-        let re = Regex::new(r"\d+(\D+-\d+)").unwrap();
+        let re = RE_CLEAN_ID.get_or_init(|| Regex::new(r"\d+(\D+-\d+)").unwrap());
         re.captures(id).map(|cap| cap[1].to_string())
     }
 

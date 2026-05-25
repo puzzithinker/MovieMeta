@@ -75,7 +75,10 @@ impl FileAttributes {
                 .ok()
                 .and_then(|re| re.captures(&path_str))
             {
-                let captured = caps.get(1).unwrap().as_str().to_uppercase();
+                let captured = match caps.get(1) {
+                    Some(m) => m.as_str().to_uppercase(),
+                    None => continue,
+                };
                 attrs.multi_part = true;
                 attrs.part = format!("-{}", captured);
                 break;  // Use first match only
