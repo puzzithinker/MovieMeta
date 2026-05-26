@@ -198,10 +198,14 @@ impl FaceDetector {
 
         // Check if face_recognition module is installed
         let module_check = Command::new(&self.python_path)
-            .args(&["-c", "import face_recognition"])
+            .args(["-c", "import face_recognition"])
             .output();
 
-        module_check.is_ok() && module_check.as_ref().map(|o| o.status.success()).unwrap_or(false)
+        module_check.is_ok()
+            && module_check
+                .as_ref()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
     }
 }
 

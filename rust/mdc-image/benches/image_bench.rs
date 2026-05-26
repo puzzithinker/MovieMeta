@@ -12,7 +12,7 @@ fn create_test_image(width: u32, height: u32, color: Rgba<u8>) -> DynamicImage {
 fn bench_image_load_save(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
     let test_path = temp_dir.path().join("bench_load_save.png");
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create and save initial image
     let img = create_test_image(1920, 1080, Rgba([255, 0, 0, 255]));
@@ -40,7 +40,7 @@ fn bench_image_load_save(c: &mut Criterion) {
 }
 
 fn bench_resize_operations(c: &mut Criterion) {
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
     let mut group = c.benchmark_group("resize");
 
     // Test different image sizes
@@ -75,7 +75,7 @@ fn bench_resize_operations(c: &mut Criterion) {
 
 fn bench_crop_operations(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
     let mut group = c.benchmark_group("crop");
 
     // Wide image (typical movie cover)
@@ -173,7 +173,7 @@ fn bench_crop_operations(c: &mut Criterion) {
 
 fn bench_watermark(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create base image
     let base_img = create_test_image(800, 600, Rgba([200, 200, 200, 255]));

@@ -13,7 +13,7 @@ fn test_image_load_save() {
     let temp_dir = TempDir::new().unwrap();
     let test_path = temp_dir.path().join("test.png");
 
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create and save an image
     let img = create_test_image(100, 100, Rgba([255, 0, 0, 255]));
@@ -26,7 +26,7 @@ fn test_image_load_save() {
 
 #[test]
 fn test_resize_operations() {
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
     let img = create_test_image(800, 600, Rgba([0, 255, 0, 255]));
 
     // Exact resize
@@ -45,7 +45,7 @@ fn test_crop_mode_copy() {
     let fanart_path = temp_dir.path().join("fanart.png");
     let poster_path = temp_dir.path().join("poster.png");
 
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create and save fanart
     let img = create_test_image(300, 200, Rgba([0, 0, 255, 255]));
@@ -67,7 +67,7 @@ fn test_crop_mode_smart_width() {
     let fanart_path = temp_dir.path().join("fanart_wide.png");
     let poster_path = temp_dir.path().join("poster_smart.png");
 
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create wide image (800x400, aspect > 2/3)
     let img = create_test_image(800, 400, Rgba([255, 255, 0, 255]));
@@ -93,7 +93,7 @@ fn test_crop_mode_smart_height() {
     let fanart_path = temp_dir.path().join("fanart_tall.png");
     let poster_path = temp_dir.path().join("poster_tall.png");
 
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create tall image (400x800, aspect < 2/3)
     let img = create_test_image(400, 800, Rgba([255, 0, 255, 255]));
@@ -119,7 +119,7 @@ fn test_crop_with_face_location() {
     let fanart_path = temp_dir.path().join("fanart_face.png");
     let poster_path = temp_dir.path().join("poster_face.png");
 
-    let processor = ImageProcessor::default();
+    let processor = ImageProcessor::create_default();
 
     // Create wide image
     let img = create_test_image(800, 400, Rgba([128, 128, 128, 255]));

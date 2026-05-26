@@ -4,7 +4,6 @@ use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::Response,
 };
-use futures_util::SinkExt;
 use tokio::sync::broadcast;
 
 use crate::models::ProgressMessage;

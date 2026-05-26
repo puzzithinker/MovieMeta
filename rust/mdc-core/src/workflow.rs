@@ -72,17 +72,16 @@ async fn download_image(url: &str, dest_path: &Path, cookie_header: Option<&str>
     let referer = url::Url::parse(url)
         .ok()
         .and_then(|u| {
-            u.host_str().map(|host| {
-                format!("{}://{}/", u.scheme(), host)
-            })
+            u.host_str()
+                .map(|host| format!("{}://{}/", u.scheme(), host))
         })
         .unwrap_or_else(|| "https://www.javbus.com/".to_string());
 
     // Build request with proper headers
-    let mut request = client
-        .get(url)
-        .header("Referer", &referer)
-        .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
+    let mut request = client.get(url).header("Referer", &referer).header(
+        "Accept",
+        "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    );
 
     // Add cookies if provided
     if let Some(cookies) = cookie_header {
@@ -96,14 +95,12 @@ async fn download_image(url: &str, dest_path: &Path, cookie_header: Option<&str>
         .with_context(|| format!("Failed to download image from {}", url))?;
 
     if !response.status().is_success() {
-        return Err(anyhow::anyhow!(
-            "HTTP error {}: {}",
-            response.status(),
-            url
-        ));
+        return Err(anyhow::anyhow!("HTTP error {}: {}", response.status(), url));
     }
 
-    let bytes = response.bytes().await
+    let bytes = response
+        .bytes()
+        .await
         .with_context(|| format!("Failed to read image bytes from {}", url))?;
 
     // Save to file
@@ -125,7 +122,11 @@ async fn download_movie_images(
     let cover_url = metadata["cover"].as_str();
     let cover_small_url = metadata["cover_small"].as_str();
 
-    tracing::debug!("Image URLs - cover: {:?}, cover_small: {:?}", cover_url, cover_small_url);
+    tracing::debug!(
+        "Image URLs - cover: {:?}, cover_small: {:?}",
+        cover_url,
+        cover_small_url
+    );
 
     // Determine which URL to use for poster (prefer cover_small, fallback to cover)
     let poster_url = cover_small_url
@@ -183,7 +184,7 @@ fn load_cookies_for_domain(domain: Option<String>) -> Option<String> {
                         }
                         if let Some((key, value)) = line.split_once('=') {
                             let key = key.trim();
-                            if key == &domain || key == domain.trim_start_matches("www.") {
+                            if key == domain || key == domain.trim_start_matches("www.") {
                                 return Some(value.trim().to_string());
                             }
                         }
@@ -239,7 +240,7 @@ impl ProcessingContext {
         let location = template.render(&self.metadata);
 
         // Split by path separators and sanitize each component
-        let components: Vec<String> = location.split('/').map(|s| sanitize_filename(s)).collect();
+        let components: Vec<String> = location.split('/').map(sanitize_filename).collect();
 
         let mut dest_folder = self.config.success_folder.clone();
         for component in components {
@@ -319,11 +320,7 @@ impl ProcessingContext {
             // Use tokio::task::block_in_place to run async code from sync context
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    download_movie_images(
-                        &self.metadata,
-                        &dest_folder,
-                        &base_name,
-                    ).await
+                    download_movie_images(&self.metadata, &dest_folder, &base_name).await
                 })
             })?;
         }
@@ -333,12 +330,14 @@ impl ProcessingContext {
 
         // Move subtitles if enabled
         if self.config.move_subtitles {
-            let _ = move_subtitles(
+            if let Err(e) = move_subtitles(
                 &self.movie_path,
                 &dest_folder,
                 &base_name,
                 self.config.link_mode,
-            );
+            ) {
+                tracing::warn!("Failed to move subtitles: {}", e);
+            }
         }
 
         tracing::info!(
@@ -370,12 +369,14 @@ impl ProcessingContext {
 
         // Move subtitles if enabled
         if self.config.move_subtitles {
-            let _ = move_subtitles(
+            if let Err(e) = move_subtitles(
                 &self.movie_path,
                 &dest_folder,
                 &base_name,
                 self.config.link_mode,
-            );
+            ) {
+                tracing::warn!("Failed to move subtitles: {}", e);
+            }
         }
 
         tracing::info!(
@@ -406,11 +407,7 @@ impl ProcessingContext {
             // Use tokio::task::block_in_place to run async code from sync context
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    download_movie_images(
-                        &self.metadata,
-                        source_folder,
-                        &base_name,
-                    ).await
+                    download_movie_images(&self.metadata, source_folder, &base_name).await
                 })
             })?;
         }

@@ -28,6 +28,9 @@ pub enum ApiError {
 
     /// Validation error
     Validation(String),
+
+    /// Feature not yet implemented
+    NotImplemented(String),
 }
 
 impl fmt::Display for ApiError {
@@ -38,6 +41,7 @@ impl fmt::Display for ApiError {
             Self::Internal(msg) => write!(f, "Internal error: {}", msg),
             Self::Database(msg) => write!(f, "Database error: {}", msg),
             Self::Validation(msg) => write!(f, "Validation error: {}", msg),
+            Self::NotImplemented(msg) => write!(f, "Not implemented: {}", msg),
         }
     }
 }
@@ -59,6 +63,7 @@ impl IntoResponse for ApiError {
             Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
             Self::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR"),
             Self::Validation(_) => (StatusCode::BAD_REQUEST, "VALIDATION_ERROR"),
+            Self::NotImplemented(_) => (StatusCode::NOT_IMPLEMENTED, "NOT_IMPLEMENTED"),
         };
 
         let body = Json(ErrorResponse {

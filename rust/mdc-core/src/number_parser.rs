@@ -612,14 +612,16 @@ pub fn convert_to_content_id(display_id: &str) -> String {
     }
 
     // Tokyo-Hot special handling: n1234, k0123 → keep as-is (already content format)
-    let re_tokyohot = RE_CONTENT_TOKYOHOT.get_or_init(|| Regex::new(r"^(cz|gedo|k|n|red|se)\d+$").unwrap());
+    let re_tokyohot =
+        RE_CONTENT_TOKYOHOT.get_or_init(|| Regex::new(r"^(cz|gedo|k|n|red|se)\d+$").unwrap());
     if re_tokyohot.is_match(&lower) {
         return lower;
     }
 
     // T28/R18 special handling: T28-123 → t2800123, R18-456 → r1800456
     // These have digits in the prefix (T28, R18), so handle them specially
-    let re_t28r18 = RE_CONTENT_T28R18.get_or_init(|| Regex::new(r"^(t-?28|r-?18)[-_]?(\d+)$").unwrap());
+    let re_t28r18 =
+        RE_CONTENT_T28R18.get_or_init(|| Regex::new(r"^(t-?28|r-?18)[-_]?(\d+)$").unwrap());
     if let Some(caps) = re_t28r18.captures(&lower) {
         let prefix = caps[1].replace("-", ""); // t28 or r18
         let digits = &caps[2];
@@ -628,7 +630,8 @@ pub fn convert_to_content_id(display_id: &str) -> String {
     }
 
     // Standard format: ABC-123 → abc00123
-    let re = RE_CONTENT_STANDARD.get_or_init(|| Regex::new(r"^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$").unwrap());
+    let re = RE_CONTENT_STANDARD
+        .get_or_init(|| Regex::new(r"^([A-Za-z]+)[-_]?(\d+)([A-Za-z]*)$").unwrap());
     if let Some(caps) = re.captures(display_id) {
         let prefix = caps[1].to_lowercase();
         let digits = &caps[2];
@@ -663,9 +666,9 @@ pub fn convert_to_display_id(content_id: &str) -> String {
     let lower = content_id.to_lowercase();
 
     // FC2 special handling: fc2ppv1234567 → FC2-PPV-1234567
-    if lower.starts_with("fc2") {
+    if let Some(after_fc2) = lower.strip_prefix("fc2") {
         // Skip "fc2" prefix and extract only the ID digits
-        let after_fc2 = &lower[3..]; // Skip "fc2"
+        // Skip "fc2"
         let digits: String = after_fc2.chars().filter(|c| c.is_numeric()).collect();
         if lower.contains("ppv") {
             return format!("FC2-PPV-{}", digits);
@@ -766,7 +769,8 @@ pub fn insert_hyphens(s: &str) -> String {
 
     // Tokyo-Hot IDs should remain without hyphens (lowercase letter prefix + digits)
     // Patterns: n1234, k5678, cz1234, red001, gedo123, se456, red-123
-    let tokyo_hot_re = RE_HYPHEN_TOKYO_HOT.get_or_init(|| Regex::new(r"^(?i)(cz|gedo|k|n|red|se)[-_]?\d{2,6}$").unwrap());
+    let tokyo_hot_re = RE_HYPHEN_TOKYO_HOT
+        .get_or_init(|| Regex::new(r"^(?i)(cz|gedo|k|n|red|se)[-_]?\d{2,6}$").unwrap());
     if tokyo_hot_re.is_match(s) {
         return s.to_string();
     }
@@ -852,7 +856,8 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     }
 
     // Pattern 3: Lowercase with separator (also excludes c for Chinese subtitles)
-    let re_lower = RE_PART_LOWER_SEP.get_or_init(|| Regex::new(r"^(.+?)[-_]([abd-tv-y])$").unwrap()); // Lowercase a-b, d-t, v-y (excludes c, u, z)
+    let re_lower =
+        RE_PART_LOWER_SEP.get_or_init(|| Regex::new(r"^(.+?)[-_]([abd-tv-y])$").unwrap()); // Lowercase a-b, d-t, v-y (excludes c, u, z)
     if let Some(caps) = re_lower.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
@@ -868,7 +873,8 @@ pub fn extract_part_from_suffix(id: &str) -> (String, Option<u8>) {
     }
 
     // Pattern 4: Lowercase directly attached
-    let re_lower_attached = RE_PART_LOWER_ATTACHED.get_or_init(|| Regex::new(r"^(.+\d)([a-tv-y])$").unwrap()); // Lowercase A-T, V-Y
+    let re_lower_attached =
+        RE_PART_LOWER_ATTACHED.get_or_init(|| Regex::new(r"^(.+\d)([a-tv-y])$").unwrap()); // Lowercase A-T, V-Y
     if let Some(caps) = re_lower_attached.captures(id) {
         let base_id = caps[1].to_string();
         let letter = &caps[2];
@@ -964,10 +970,26 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
     if let Ok(re) = Regex::new(r"(?i)^(FHD|4K|1080P|720P|480P|UHD)[-_]?") {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
-    // Strip bare HD only when NOT followed by a letter+hyphen (studio prefix pattern)
+    // Strip bare HD only when NOT followed by a studio prefix pattern (letters then hyphen)
     // e.g., "HD.IPX-456" → strip HD, "HD-IPX-456" → keep HD
-    if let Ok(re) = Regex::new(r"(?i)^HD(?![A-Za-z]*-)") {
-        cleaned = re.replace_all(&cleaned, "").to_string();
+    if cleaned.to_uppercase().starts_with("HD") {
+        let after_hd = &cleaned[2..];
+        if let Some(after_hyphen) = after_hd.strip_prefix('-') {
+            // Check if after the hyphen there's a studio prefix (letters then another hyphen)
+            let has_studio_prefix = after_hyphen
+                .find('-')
+                .map(|pos| after_hyphen[..pos].chars().all(|c| c.is_ascii_alphabetic()))
+                .unwrap_or(false);
+            if !has_studio_prefix {
+                cleaned = after_hyphen.to_string();
+            }
+        } else if after_hd.starts_with(|c: char| !c.is_ascii_alphabetic()) {
+            // HD followed by non-alpha separator (dot, space, underscore): strip HD
+            cleaned = after_hd.to_string();
+        } else {
+            // HD followed by alpha (e.g., HDSSIS-001): strip HD
+            cleaned = after_hd.to_string();
+        }
     }
 
     // Normalize T28/R18 prefixes: "t28123" → "T28-123", "t-28-001" → "T28-001", "r18-001" → "R18-001"
@@ -1100,51 +1122,44 @@ fn clean_filename(filename: &str, config: Option<&ParserConfig>) -> String {
 
 /// Strip common suffixes from the number and normalize
 fn strip_suffix(file_number: &str) -> String {
+    static RE_UC: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)(-|_)uc$").unwrap());
+    static RE_C: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)(-|_)c$").unwrap());
+    static RE_U: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)(-|_)u$").unwrap());
+    static RE_CH: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)ch(\(\d+\))?$").unwrap());
+
     let mut result = file_number.to_string();
     let mut changed = true;
 
-    // Keep stripping suffixes until no more changes
     while changed {
         changed = false;
 
-        // Check for -UC suffix (uncensored) - check before -U and -C
-        if let Ok(re) = Regex::new(r"(?i)(-|_)uc$") {
-            if re.is_match(&result) {
-                result = re.replace(&result, "").to_string();
-                changed = true;
-                continue;
-            }
+        if RE_UC.is_match(&result) {
+            result = RE_UC.replace(&result, "").to_string();
+            changed = true;
+            continue;
         }
 
-        // Check for -C suffix (Chinese subtitles)
-        if let Ok(re) = Regex::new(r"(?i)(-|_)c$") {
-            if re.is_match(&result) {
-                result = re.replace(&result, "").to_string();
-                changed = true;
-                continue;
-            }
+        if RE_C.is_match(&result) {
+            result = RE_C.replace(&result, "").to_string();
+            changed = true;
+            continue;
         }
 
-        // Check for -U suffix (uncensored)
-        if let Ok(re) = Regex::new(r"(?i)(-|_)u$") {
-            if re.is_match(&result) {
-                result = re.replace(&result, "").to_string();
-                changed = true;
-                continue;
-            }
+        if RE_U.is_match(&result) {
+            result = RE_U.replace(&result, "").to_string();
+            changed = true;
+            continue;
         }
 
-        // Check for XXXch suffix (chapter marker or Windows duplicate marker)
-        // Handles both "ABC-123ch" and "ABC-123ch(3)" patterns
-        // This looks for "ch" optionally followed by "(N)" at the end of the string
-        if let Ok(re) = Regex::new(r"(?i)ch(\(\d+\))?$") {
-            if let Some(m) = re.find(&result) {
-                // Remove the matched "ch" or "ch(N)" suffix
-                let match_len = m.as_str().len();
-                result = result[..result.len() - match_len].to_string();
-                changed = true;
-                continue;
-            }
+        if let Some(m) = RE_CH.find(&result) {
+            let match_len = m.as_str().len();
+            result = result[..result.len() - match_len].to_string();
+            changed = true;
+            continue;
         }
     }
 
@@ -1347,21 +1362,19 @@ pub fn parse_number(file_path: &str, config: Option<&ParserConfig>) -> Result<Pa
     let (id_without_part, part_number) = extract_part_from_suffix(&base_id);
 
     // Detect attributes from suffix (after part extraction)
-    let mut attrs = ParsedAttributes::default();
+    static RE_CN_SUB_MULTI: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)[-_](ch|chn|chs|cht|cn[-_]?sub)$").unwrap());
+    static RE_CN_SUB_SINGLE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)[-_]c$").unwrap());
+    static RE_UNCENSORED: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)[-_]u(c)?$").unwrap());
 
-    // Check for -C suffix (Chinese subtitles) - only multi-char patterns to avoid conflict with part C
-    // Accept: -CH, -CHN, -CHS, -CHT, -CN_SUB, etc.
-    attrs.cn_sub = Regex::new(r"(?i)[-_](ch|chn|chs|cht|cn[-_]?sub)$")
-        .unwrap()
-        .is_match(&id_without_part)
-        || Regex::new(r"(?i)[-_]c$")
-            .unwrap()
-            .is_match(&id_without_part);
-
-    // Check for -U or -UC suffix (uncensored)
-    attrs.uncensored = Regex::new(r"(?i)[-_]u(c)?$")
-        .unwrap()
-        .is_match(&id_without_part);
+    let attrs = ParsedAttributes {
+        cn_sub: RE_CN_SUB_MULTI.is_match(&id_without_part)
+            || RE_CN_SUB_SINGLE.is_match(&id_without_part),
+        uncensored: RE_UNCENSORED.is_match(&id_without_part),
+        ..Default::default()
+    };
 
     // Strip the suffix to get clean ID
     let clean_id = strip_suffix(&id_without_part);
@@ -1449,9 +1462,7 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
         let mut filename = get_g_spat().replace_all(cleaned_filepath, "").to_string();
 
         // Clean up trailing separators left by G_SPAT removal (e.g., "AVOP-212-" → "AVOP-212")
-        filename = filename
-            .trim_end_matches(|c| c == '-' || c == '_')
-            .to_string();
+        filename = filename.trim_end_matches(['-', '_']).to_string();
 
         // Remove date patterns like [2024-01-01] -
         filename = Regex::new(r"\[\d{4}-\d{1,2}-\d{1,2}\] - ")
@@ -1571,13 +1582,10 @@ fn extract_number_internal(filepath: &str, cleaned_filepath: &str) -> Result<Str
 /// ```
 pub fn get_number(file_path: &str, custom_regexs: Option<&str>) -> Result<String> {
     // Convert old-style custom_regexs string to new config format
-    let config = if let Some(regexs) = custom_regexs {
-        let mut cfg = ParserConfig::default();
-        cfg.custom_regexs = regexs.split_whitespace().map(|s| s.to_string()).collect();
-        Some(cfg)
-    } else {
-        None
-    };
+    let config = custom_regexs.map(|regexs| ParserConfig {
+        custom_regexs: regexs.split_whitespace().map(|s| s.to_string()).collect(),
+        ..Default::default()
+    });
 
     // Use parse_number and return just the ID for backward compatibility
     let parsed = parse_number(file_path, config.as_ref())?;
@@ -2290,25 +2298,26 @@ mod tests {
     fn test_parse_number_attributes_cn_sub() {
         let result = parse_number("SSIS-123-C.mp4", None).unwrap();
         assert_eq!(result.id, "SSIS-123");
-        assert_eq!(result.attributes.cn_sub, true);
+        assert!(result.attributes.cn_sub);
     }
 
     #[test]
     fn test_parse_number_attributes_uncensored() {
         let result = parse_number("SSIS-123-U.mp4", None).unwrap();
         assert_eq!(result.id, "SSIS-123");
-        assert_eq!(result.attributes.uncensored, true);
+        assert!(result.attributes.uncensored);
 
         let result2 = parse_number("ABP-456-UC.mp4", None).unwrap();
         assert_eq!(result2.id, "ABP-456");
-        assert_eq!(result2.attributes.uncensored, true);
+        assert!(result2.attributes.uncensored);
     }
 
     #[test]
     fn test_parse_number_with_config() {
-        let mut config = ParserConfig::default();
-        // Use regex without capture groups, or set regex_id_match to 0 for whole match
-        config.custom_regexs = vec![r"CUSTOM-\d+".to_string()];
+        let config = ParserConfig {
+            custom_regexs: vec![r"CUSTOM-\d+".to_string()],
+            ..Default::default()
+        };
 
         let result = parse_number("prefix_CUSTOM-999_suffix.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "CUSTOM-999");
@@ -2316,10 +2325,11 @@ mod tests {
 
     #[test]
     fn test_parse_number_with_capture_groups() {
-        let mut config = ParserConfig::default();
-        // Regex with capture groups - group 0 is whole match, group 1 is digits
-        config.custom_regexs = vec![r"(CUSTOM-\d+)".to_string()];
-        config.regex_id_match = 1; // Extract from capture group 1
+        let config = ParserConfig {
+            custom_regexs: vec![r"(CUSTOM-\d+)".to_string()],
+            regex_id_match: 1,
+            ..Default::default()
+        };
 
         let result = parse_number("prefix_CUSTOM-999_suffix.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "CUSTOM-999");
@@ -2434,13 +2444,14 @@ mod tests {
 
     #[test]
     fn test_configurable_removal_strings() {
-        // Test configurable removal strings via ParserConfig
-        let mut config = ParserConfig::default();
-        config.removal_strings = vec![
-            "CUSTOM".to_string(),
-            "TAG".to_string(),
-            "-SPECIAL".to_string(),
-        ];
+        let config = ParserConfig {
+            removal_strings: vec![
+                "CUSTOM".to_string(),
+                "TAG".to_string(),
+                "-SPECIAL".to_string(),
+            ],
+            ..Default::default()
+        };
 
         let result = parse_number("CUSTOMSSIS-123.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "SSIS-123");
@@ -2463,9 +2474,10 @@ mod tests {
 
     #[test]
     fn test_clean_filename_with_config() {
-        // Test clean_filename with configurable removal strings
-        let mut config = ParserConfig::default();
-        config.removal_strings = vec!["UNWANTED".to_string(), "-JUNK".to_string()];
+        let config = ParserConfig {
+            removal_strings: vec!["UNWANTED".to_string(), "-JUNK".to_string()],
+            ..Default::default()
+        };
 
         assert_eq!(
             clean_filename("UNWANTEDSSIS-123", Some(&config)),
@@ -2480,9 +2492,10 @@ mod tests {
 
     #[test]
     fn test_multiple_phase2_features() {
-        // Test multiple Phase 2 features working together
-        let mut config = ParserConfig::default();
-        config.removal_strings = vec!["SITE".to_string()];
+        let config = ParserConfig {
+            removal_strings: vec!["SITE".to_string()],
+            ..Default::default()
+        };
 
         // T28 normalization + removal string
         let result = parse_number("SITEt28123.mp4", Some(&config)).unwrap();
@@ -2512,9 +2525,10 @@ mod tests {
 
     #[test]
     fn test_removal_strings_empty_handling() {
-        // Test that empty removal strings are ignored
-        let mut config = ParserConfig::default();
-        config.removal_strings = vec!["".to_string(), "VALID".to_string(), "".to_string()];
+        let config = ParserConfig {
+            removal_strings: vec!["".to_string(), "VALID".to_string(), "".to_string()],
+            ..Default::default()
+        };
 
         let result = parse_number("VALIDSSIS-123.mp4", Some(&config)).unwrap();
         assert_eq!(result.id, "SSIS-123");
@@ -2620,12 +2634,12 @@ mod tests {
         let result = parse_number("SSIS-123-U-A.mp4", None).unwrap();
         assert_eq!(result.id, "SSIS-123");
         assert_eq!(result.part_number, Some(1));
-        assert_eq!(result.attributes.uncensored, true);
+        assert!(result.attributes.uncensored);
 
         let result2 = parse_number("ABP-456-C-B.mp4", None).unwrap();
         assert_eq!(result2.id, "ABP-456");
         assert_eq!(result2.part_number, Some(2));
-        assert_eq!(result2.attributes.cn_sub, true);
+        assert!(result2.attributes.cn_sub);
     }
 
     #[test]
@@ -2706,7 +2720,7 @@ mod tests {
 
         assert_eq!(config.custom_regexs.len(), 1);
         assert_eq!(config.custom_regexs[0], r"CUSTOM-\d+");
-        assert_eq!(config.strict_mode, true);
+        assert!(config.strict_mode);
         assert_eq!(config.regex_id_match, 1);
         assert_eq!(config.regex_pt_match, 2);
     }

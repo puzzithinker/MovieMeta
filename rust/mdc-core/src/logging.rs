@@ -8,8 +8,8 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// Get the directory where the executable is located
 ///
@@ -129,8 +129,8 @@ pub fn init_with_config(config: LogConfig) -> Result<()> {
     }
 
     // Environment variable takes precedence
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
 
     // Create daily rotating file appender
     let file_appender = RollingFileAppender::builder()
@@ -138,10 +138,12 @@ pub fn init_with_config(config: LogConfig) -> Result<()> {
         .filename_prefix(&config.file_prefix)
         .filename_suffix("log")
         .build(&config.log_dir)
-        .with_context(|| format!(
-            "Failed to create log file appender in directory: {:?}",
-            config.log_dir
-        ))?;
+        .with_context(|| {
+            format!(
+                "Failed to create log file appender in directory: {:?}",
+                config.log_dir
+            )
+        })?;
 
     // Non-blocking file writer for performance
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
@@ -176,7 +178,11 @@ pub fn init_with_config(config: LogConfig) -> Result<()> {
             .init();
     }
 
-    tracing::info!("Logging initialized: level={}, log_dir={:?}", config.level, config.log_dir);
+    tracing::info!(
+        "Logging initialized: level={}, log_dir={:?}",
+        config.level,
+        config.log_dir
+    );
 
     // Store guard in a global static to prevent it from being dropped
     // This is necessary to keep the non-blocking writer alive
@@ -213,11 +219,15 @@ pub fn init_with_config(config: LogConfig) -> Result<()> {
 /// init_cli(true, Some(PathBuf::from("/var/log/mdc"))).expect("Failed to initialize logging");
 /// ```
 pub fn init_cli(debug: bool, log_dir: Option<PathBuf>) -> Result<()> {
-    let mut config = LogConfig::default();
-    config.level = if debug { "debug" } else { "info" }.to_string();
+    let config = LogConfig {
+        level: if debug { "debug" } else { "info" }.to_string(),
+        ..Default::default()
+    };
 
     if let Some(dir) = log_dir {
+        let mut config = config;
         config.log_dir = dir;
+        return init_with_config(config);
     }
 
     init_with_config(config)
@@ -245,12 +255,16 @@ pub fn init_cli(debug: bool, log_dir: Option<PathBuf>) -> Result<()> {
 /// init_server(false, None).expect("Failed to initialize logging");
 /// ```
 pub fn init_server(debug: bool, log_dir: Option<PathBuf>) -> Result<()> {
-    let mut config = LogConfig::default();
-    config.level = if debug { "debug" } else { "info" }.to_string();
-    config.file_prefix = "mdc-server".to_string();
+    let config = LogConfig {
+        level: if debug { "debug" } else { "info" }.to_string(),
+        file_prefix: "mdc-server".to_string(),
+        ..Default::default()
+    };
 
     if let Some(dir) = log_dir {
+        let mut config = config;
         config.log_dir = dir;
+        return init_with_config(config);
     }
 
     init_with_config(config)
@@ -297,11 +311,9 @@ mod tests {
 
         // Init may fail if global subscriber already set by another test
         let result = init_cli(true, Some(temp.path().to_path_buf()));
-        if result.is_err() {
-            return;
-        }
+        let _ = result;
 
-        assert!(true);
+        // Just verify init returned without panic
     }
 
     #[test]
@@ -310,10 +322,8 @@ mod tests {
 
         // Init may fail if global subscriber already set by another test
         let result = init_server(false, Some(temp.path().to_path_buf()));
-        if result.is_err() {
-            return;
-        }
+        let _ = result;
 
-        assert!(true);
+        // Just verify init returned without panic
     }
 }

@@ -103,7 +103,8 @@ impl JavdbScraper {
         let html_text = html.html();
 
         // Extract all movie IDs and their corresponding links
-        let uid_re = RE_UID.get_or_init(|| Regex::new(r#"<div class="uid">([^<]+)</div>"#).unwrap());
+        let uid_re =
+            RE_UID.get_or_init(|| Regex::new(r#"<div class="uid">([^<]+)</div>"#).unwrap());
 
         // Find all movie items (we'll look for the structure around uid/title)
         let mut matches = Vec::new();
@@ -148,7 +149,8 @@ impl JavdbScraper {
     /// Extract detail URL from HTML by finding the nth movie item
     fn extract_detail_url_from_html(&self, html_text: &str, index: usize) -> Result<String> {
         // Look for all hrefs in the movie list
-        let href_re = RE_HREF.get_or_init(|| Regex::new(r#"<a[^>]+href="(/v/[^"]+)"[^>]*>"#).unwrap());
+        let href_re =
+            RE_HREF.get_or_init(|| Regex::new(r#"<a[^>]+href="(/v/[^"]+)"[^>]*>"#).unwrap());
 
         for (count, cap) in href_re.captures_iter(html_text).enumerate() {
             if count == index {
@@ -163,11 +165,14 @@ impl JavdbScraper {
         ))
     }
 
-    /// Clean movie ID (remove leading zeros from number part)
-    /// Example: "0123ABC-456" -> "123ABC-456"
+    /// Clean movie ID - normalize format by removing leading zeros from number part
+    /// Example: "SSIS00123" -> "SSIS-123", "ABP-001" -> "ABP-001" (already correct)
     fn clean_movie_id(id: &str) -> Option<String> {
-        let re = RE_CLEAN_ID.get_or_init(|| Regex::new(r"\d+(\D+-\d+)").unwrap());
-        re.captures(id).map(|cap| cap[1].to_string())
+        // Match standard JAV format: letters followed by optional separator and digits
+        // This handles cases like "SSIS00123" -> "SSIS-123"
+        let re = RE_CLEAN_ID.get_or_init(|| Regex::new(r"^([A-Za-z]+)[-_]?0*(\d+)$").unwrap());
+        re.captures(id)
+            .map(|cap| format!("{}-{}", &cap[1], &cap[2]))
     }
 
     /// Build detail URL with locale parameter
@@ -399,7 +404,7 @@ impl Scraper for JavdbScraper {
 
         // Series: <a href=".*/series/.*">(.*)</a>
         if let Some(series) =
-            self.extract_with_regex(&html_text, r#"<a href="[^"]*/ series/[^"]*">([^<]+)</a>"#)
+            self.extract_with_regex(&html_text, r#"<a href="[^"]*/series/[^"]*">([^<]+)</a>"#)
         {
             metadata.series = series;
         }

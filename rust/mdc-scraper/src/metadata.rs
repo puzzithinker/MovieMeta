@@ -211,16 +211,20 @@ mod tests {
 
     #[test]
     fn test_extract_year() {
-        let mut meta = MovieMetadata::default();
-        meta.release = "2024-03-15".to_string();
+        let mut meta = MovieMetadata {
+            release: "2024-03-15".to_string(),
+            ..Default::default()
+        };
         meta.extract_year();
         assert_eq!(meta.year, "2024");
     }
 
     #[test]
     fn test_normalize_runtime() {
-        let mut meta = MovieMetadata::default();
-        meta.runtime = "120min".to_string();
+        let mut meta = MovieMetadata {
+            runtime: "120min".to_string(),
+            ..Default::default()
+        };
         meta.normalize_runtime();
         assert_eq!(meta.runtime, "120");
 
@@ -231,13 +235,17 @@ mod tests {
 
     #[test]
     fn test_detect_uncensored() {
-        let mut meta = MovieMetadata::default();
-        meta.tag = vec!["無码".to_string(), "HD".to_string()];
+        let mut meta = MovieMetadata {
+            tag: vec!["無码".to_string(), "HD".to_string()],
+            ..Default::default()
+        };
         meta.detect_uncensored();
         assert!(meta.uncensored);
 
-        let mut meta2 = MovieMetadata::default();
-        meta2.title = "Test Movie UNCENSORED".to_string();
+        let mut meta2 = MovieMetadata {
+            title: "Test Movie UNCENSORED".to_string(),
+            ..Default::default()
+        };
         meta2.detect_uncensored();
         assert!(meta2.uncensored);
     }

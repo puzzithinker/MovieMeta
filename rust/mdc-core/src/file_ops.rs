@@ -27,10 +27,10 @@ use crate::processor::LinkMode;
 
 /// Check if two files are identical (same size and modification time)
 fn files_are_identical(a: &Path, b: &Path) -> Result<bool> {
-    let meta_a = fs::metadata(a)
-        .with_context(|| format!("Failed to read metadata for: {}", a.display()))?;
-    let meta_b = fs::metadata(b)
-        .with_context(|| format!("Failed to read metadata for: {}", b.display()))?;
+    let meta_a =
+        fs::metadata(a).with_context(|| format!("Failed to read metadata for: {}", a.display()))?;
+    let meta_b =
+        fs::metadata(b).with_context(|| format!("Failed to read metadata for: {}", b.display()))?;
 
     // Compare file size
     if meta_a.len() != meta_b.len() {
@@ -136,7 +136,7 @@ pub fn move_file(src: &Path, dest: &Path) -> Result<()> {
     let src_snapshot = FileSnapshot::capture(src);
 
     // 4. Try to rename first (fastest if on same filesystem)
-    if let Err(_) = fs::rename(src, dest) {
+    if fs::rename(src, dest).is_err() {
         // If rename fails (cross-filesystem), copy and delete
         tracing::debug!("Rename failed, falling back to copy+delete for cross-filesystem move");
 
@@ -418,7 +418,7 @@ pub fn move_subtitles(
                             if stem.starts_with(movie_stem) {
                                 let dest_sub =
                                     dest_dir.join(format!("{}.{}", dest_filename_base, ext));
-                                if let Ok(_) = execute_file_operation(&path, &dest_sub, link_mode) {
+                                if execute_file_operation(&path, &dest_sub, link_mode).is_ok() {
                                     moved_subs.push(dest_sub);
                                 }
                             }
@@ -646,7 +646,11 @@ mod tests {
         let existing_dest = temp.path().join("important_data.mp4");
 
         // Create destination file with important data
-        std::fs::write(&existing_dest, "This is critical data that must not be lost").unwrap();
+        std::fs::write(
+            &existing_dest,
+            "This is critical data that must not be lost",
+        )
+        .unwrap();
         assert!(existing_dest.exists());
 
         let original_content = std::fs::read_to_string(&existing_dest).unwrap();
@@ -656,10 +660,16 @@ mod tests {
         let result = move_file(&nonexistent_source, &existing_dest);
 
         // CRITICAL: Move should fail
-        assert!(result.is_err(), "Move should fail when source doesn't exist");
+        assert!(
+            result.is_err(),
+            "Move should fail when source doesn't exist"
+        );
 
         // CRITICAL: Destination file must still exist with original content
-        assert!(existing_dest.exists(), "Destination file must not be deleted!");
+        assert!(
+            existing_dest.exists(),
+            "Destination file must not be deleted!"
+        );
         assert_eq!(
             std::fs::read_to_string(&existing_dest).unwrap(),
             original_content,
@@ -673,10 +683,16 @@ mod tests {
 
         // Verify error message mentions source doesn't exist
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Source file does not exist"),
-            "Error should clearly state source doesn't exist: {}", err_msg);
-        assert!(err_msg.contains("data loss"),
-            "Error should mention data loss prevention: {}", err_msg);
+        assert!(
+            err_msg.contains("Source file does not exist"),
+            "Error should clearly state source doesn't exist: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("data loss"),
+            "Error should mention data loss prevention: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -691,9 +707,14 @@ mod tests {
         let result = move_file(&file_path, &file_path);
 
         // Should succeed (no-op)
-        assert!(result.is_ok(), "Moving file to itself should succeed as no-op");
+        assert!(
+            result.is_ok(),
+            "Moving file to itself should succeed as no-op"
+        );
         assert!(file_path.exists(), "File should still exist");
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "movie content");
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "movie content"
+        );
     }
-
 }

@@ -59,12 +59,12 @@ impl FileAttributes {
         // The numeric pattern requires that there's already a complete ID before the number,
         // by looking for: letters + dash/number, then another dash/underscore + just digits + extension
         let patterns = [
-            (r"[-_](CD\d+)", "CD"),              // -CD1, -CD2, _CD1
-            (r"(?i)[-_](DISK\d+)", "DISK"),      // -disk1, -disk2, _DISK3
-            (r"(?i)[-_](DISC\d+)", "DISC"),      // -disc1, -disc2, _DISC3
-            (r"(?i)[-_](PART\d+)", "PART"),      // -part1, -part2, _PART3
-            (r"(?i)[-_](PARTS\d+)", "PARTS"),    // -parts1 (less common)
-            (r"(?i)[-_](PT\d+)", "PT"),          // -pt1, -pt2, _PT3
+            (r"[-_](CD\d+)", "CD"),           // -CD1, -CD2, _CD1
+            (r"(?i)[-_](DISK\d+)", "DISK"),   // -disk1, -disk2, _DISK3
+            (r"(?i)[-_](DISC\d+)", "DISC"),   // -disc1, -disc2, _DISC3
+            (r"(?i)[-_](PART\d+)", "PART"),   // -part1, -part2, _PART3
+            (r"(?i)[-_](PARTS\d+)", "PARTS"), // -parts1 (less common)
+            (r"(?i)[-_](PT\d+)", "PT"),       // -pt1, -pt2, _PT3
             // Numeric pattern: requires previous dash with digits (movie ID), then another dash + 1-2 digits
             // This prevents matching the movie number itself
             (r"-\d+[-_](\d{1,2})(?:[-_][CU])?\.[\w]+$", "NUM"),
@@ -81,7 +81,7 @@ impl FileAttributes {
                 };
                 attrs.multi_part = true;
                 attrs.part = format!("-{}", captured);
-                break;  // Use first match only
+                break; // Use first match only
             }
         }
 
@@ -169,7 +169,7 @@ impl Template {
         ];
 
         for var in &variables {
-            let placeholder = format!("{}", var);
+            let placeholder = var.to_string();
             let value = get_field(var);
             result = result.replace(&placeholder, &value);
         }
@@ -273,15 +273,19 @@ mod tests {
     fn test_file_attributes_not_multi_part() {
         // Movie numbers that end in digits - should NOT detect as multi-part
         let cases = vec![
-            "/movies/SSIS-123.mp4",          // Primary number
-            "/movies/T28-001.mp4",           // T28 format
-            "/movies/FC2-PPV-1234567.mp4",   // FC2 format
+            "/movies/SSIS-123.mp4",        // Primary number
+            "/movies/T28-001.mp4",         // T28 format
+            "/movies/FC2-PPV-1234567.mp4", // FC2 format
         ];
 
         for path_str in cases {
             let path = Path::new(path_str);
             let attrs = FileAttributes::from_path(path);
-            assert!(!attrs.multi_part, "Incorrectly detected {} as multi-part", path_str);
+            assert!(
+                !attrs.multi_part,
+                "Incorrectly detected {} as multi-part",
+                path_str
+            );
             assert_eq!(attrs.part, "", "Part should be empty for {}", path_str);
         }
     }

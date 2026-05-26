@@ -278,10 +278,10 @@ impl Scanner {
 
             // Skip symlinks and hardlinks in non-mode-3
             let is_sym = is_symlink(path);
-            if self.config.main_mode != 3 {
-                if is_sym || (has_hardlinks(path) && !self.config.scan_hardlink) {
-                    continue;
-                }
+            if self.config.main_mode != 3
+                && (is_sym || (has_hardlinks(path) && !self.config.scan_hardlink))
+            {
+                continue;
             }
 
             // CLI regex filter

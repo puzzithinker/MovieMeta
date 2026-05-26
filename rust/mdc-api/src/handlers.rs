@@ -17,70 +17,53 @@ pub async fn health() -> &'static str {
 }
 
 /// Create a new processing job
-pub async fn create_job(Json(request): Json<CreateJobRequest>) -> ApiResult<Json<JobResponse>> {
-    // TODO: Implement job creation with mdc-core
-    // For now, return a mock response
-
-    let job_id = uuid::Uuid::new_v4().to_string();
-
-    Ok(Json(JobResponse {
-        id: job_id,
-        status: JobStatus::Pending,
-        total_files: request.files.len(),
-        processed_files: 0,
-        succeeded: 0,
-        failed: 0,
-        error: None,
-        created_at: chrono::Utc::now().to_rfc3339(),
-        completed_at: None,
-    }))
+pub async fn create_job(Json(_request): Json<CreateJobRequest>) -> ApiResult<Json<JobResponse>> {
+    Err(ApiError::NotImplemented(
+        "Job creation is not yet implemented".to_string(),
+    ))
 }
 
 /// List all jobs
 #[derive(Debug, Deserialize)]
 pub struct ListJobsQuery {
     /// Filter by status
-    status: Option<String>,
+    pub status: Option<String>,
 
     /// Limit results
-    limit: Option<usize>,
+    pub limit: Option<usize>,
 
     /// Offset for pagination
-    offset: Option<usize>,
+    pub offset: Option<usize>,
 }
 
 pub async fn list_jobs(Query(_query): Query<ListJobsQuery>) -> ApiResult<Json<JobListResponse>> {
-    // TODO: Implement job listing from mdc-storage
-    // For now, return empty list
-
-    Ok(Json(JobListResponse {
-        jobs: vec![],
-        total: 0,
-    }))
+    Err(ApiError::NotImplemented(
+        "Job listing is not yet implemented".to_string(),
+    ))
 }
 
 /// Get job by ID
 pub async fn get_job(Path(job_id): Path<String>) -> ApiResult<Json<JobResponse>> {
-    // TODO: Implement job retrieval from mdc-storage
-    // For now, return not found
-
-    Err(ApiError::NotFound(format!("Job not found: {}", job_id)))
+    Err(ApiError::NotImplemented(format!(
+        "Job retrieval is not yet implemented (id: {})",
+        job_id
+    )))
 }
 
 /// Cancel a job
 pub async fn cancel_job(Path(job_id): Path<String>) -> ApiResult<Json<JobResponse>> {
-    // TODO: Implement job cancellation
-    // For now, return not found
-
-    Err(ApiError::NotFound(format!("Job not found: {}", job_id)))
+    Err(ApiError::NotImplemented(format!(
+        "Job cancellation is not yet implemented (id: {})",
+        job_id
+    )))
 }
 
 /// Retry a failed job
 pub async fn retry_job(Path(job_id): Path<String>) -> ApiResult<Json<JobResponse>> {
-    // TODO: Implement job retry
-    // For now, return not found
-
-    Err(ApiError::NotFound(format!("Job not found: {}", job_id)))
+    Err(ApiError::NotImplemented(format!(
+        "Job retry is not yet implemented (id: {})",
+        job_id
+    )))
 }
 
 /// Scan folder for movie files
@@ -104,38 +87,21 @@ pub async fn scan_folder(Json(request): Json<ScanRequest>) -> ApiResult<Json<Sca
 
 /// Get configuration
 pub async fn get_config() -> ApiResult<Json<ConfigResponse>> {
-    // TODO: Load from mdc-storage config
-    // For now, return defaults
-
-    Ok(Json(ConfigResponse {
-        default_mode: 1,
-        default_link_mode: 0,
-        default_output_folder: "./output".to_string(),
-        default_location_rule: "number".to_string(),
-        default_naming_rule: "number".to_string(),
-        default_concurrent: 4,
-    }))
+    Err(ApiError::NotImplemented(
+        "Configuration retrieval is not yet implemented".to_string(),
+    ))
 }
 
 /// Update configuration
-pub async fn update_config(Json(config): Json<ConfigResponse>) -> ApiResult<Json<ConfigResponse>> {
-    // TODO: Save to mdc-storage config
-    // For now, just return the config back
-
-    Ok(Json(config))
+pub async fn update_config(Json(_config): Json<ConfigResponse>) -> ApiResult<Json<ConfigResponse>> {
+    Err(ApiError::NotImplemented(
+        "Configuration update is not yet implemented".to_string(),
+    ))
 }
 
 /// Get statistics
 pub async fn get_stats() -> ApiResult<Json<StatsResponse>> {
-    // TODO: Get stats from mdc-storage
-    // For now, return mock stats
-
-    Ok(Json(StatsResponse {
-        total_jobs: 0,
-        succeeded_jobs: 0,
-        failed_jobs: 0,
-        total_files: 0,
-        succeeded_files: 0,
-        failed_files: 0,
-    }))
+    Err(ApiError::NotImplemented(
+        "Statistics retrieval is not yet implemented".to_string(),
+    ))
 }

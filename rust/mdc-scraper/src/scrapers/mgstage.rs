@@ -35,14 +35,23 @@ impl MgstageScraper {
 
     /// Search for movie and return detail page URL
     async fn search_movie(&self, number: &str, config: &ScraperConfig) -> Result<String> {
-        let search_url = format!("{}/search/cSearch.php?search_word={}", self.base_url, number);
+        let search_url = format!(
+            "{}/search/cSearch.php?search_word={}",
+            self.base_url, number
+        );
 
         // Fetch search results with cookie
         let html_text = if let Some(cookie_header) = config.get_cookie_header("mgstage.com") {
-            config.client.get_with_cookies(&search_url, Some(&cookie_header)).await?
+            config
+                .client
+                .get_with_cookies(&search_url, Some(&cookie_header))
+                .await?
         } else {
             // Add default adc=1 cookie if not in config
-            config.client.get_with_cookies(&search_url, Some("adc=1")).await?
+            config
+                .client
+                .get_with_cookies(&search_url, Some("adc=1"))
+                .await?
         };
 
         let html = Html::parse_document(&html_text);
@@ -55,9 +64,8 @@ impl MgstageScraper {
     fn parse_search_results(&self, html: &Html, number: &str) -> Result<String> {
         // Pattern: <a href="/product/product_detail/.../">
         static HREF_RE: OnceLock<Regex> = OnceLock::new();
-        let href_re = HREF_RE.get_or_init(|| {
-            Regex::new(r#"<a\s+href="(/product/product_detail/[^"]+)""#).unwrap()
-        });
+        let href_re = HREF_RE
+            .get_or_init(|| Regex::new(r#"<a\s+href="(/product/product_detail/[^"]+)""#).unwrap());
 
         let html_text = html.html();
 
@@ -169,7 +177,8 @@ impl MgstageScraper {
 
     /// Extract value from table cell (Japanese label)
     fn extract_table_value(&self, html: &Html, label: &str) -> String {
-        self.extract_table_value_opt(html, label).unwrap_or_default()
+        self.extract_table_value_opt(html, label)
+            .unwrap_or_default()
     }
 
     /// Extract optional value from table cell
@@ -183,15 +192,15 @@ impl MgstageScraper {
             if th_text.trim() == label {
                 // Get next sibling <td>
                 if let Some(parent) = th.parent() {
-                    if let Some(td) = parent.children().find_map(|child| {
-                        if let Some(elem) = child.value().as_element() {
-                            if elem.name() == "td" {
-                                return Some(child);
-                            }
-                        }
-                        None
+                    if let Some(td) = parent.children().find(|child| {
+                        child
+                            .value()
+                            .as_element()
+                            .map(|elem| elem.name() == "td")
+                            .unwrap_or(false)
                     }) {
-                        let value = td.children()
+                        let value = td
+                            .children()
                             .filter_map(|c| c.value().as_text().map(|t| t.text.to_string()))
                             .collect::<String>();
                         let cleaned = self.clean_text(&value);
@@ -208,7 +217,10 @@ impl MgstageScraper {
     /// Extract link text from table cell
     fn extract_table_link(&self, html: &Html, label: &str) -> Option<String> {
         // Use regex to extract link text for the given label
-        let pattern = format!(r#"<th>{}</th>\s*<td[^>]*>\s*<a[^>]*>([^<]+)</a>"#, regex::escape(label));
+        let pattern = format!(
+            r#"<th>{}</th>\s*<td[^>]*>\s*<a[^>]*>([^<]+)</a>"#,
+            regex::escape(label)
+        );
 
         let html_text = html.html();
 
@@ -286,9 +298,8 @@ impl MgstageScraper {
     fn extract_screenshots(&self, html: &Html) -> Vec<String> {
         // Use CSS selector instead of regex for thread-safe parsing
         static SCREENSHOT_SELECTOR: OnceLock<Selector> = OnceLock::new();
-        let screenshot_sel = SCREENSHOT_SELECTOR.get_or_init(|| {
-            Selector::parse("a.sample_image").unwrap()
-        });
+        let screenshot_sel =
+            SCREENSHOT_SELECTOR.get_or_init(|| Selector::parse("a.sample_image").unwrap());
 
         html.select(screenshot_sel)
             .filter_map(|elem| {
@@ -333,7 +344,10 @@ impl Scraper for MgstageScraper {
 
     async fn query_number_url(&self, number: &str) -> Result<String> {
         // This is overridden by scrape(), but required by trait
-        Ok(format!("{}/search/cSearch.php?search_word={}", self.base_url, number))
+        Ok(format!(
+            "{}/search/cSearch.php?search_word={}",
+            self.base_url, number
+        ))
     }
 
     fn parse_metadata(&self, html: &Html, url: &str) -> Result<MovieMetadata> {
@@ -347,9 +361,15 @@ impl Scraper for MgstageScraper {
 
         // Fetch detail page
         let html_text = if let Some(cookie_header) = config.get_cookie_header("mgstage.com") {
-            config.client.get_with_cookies(&detail_url, Some(&cookie_header)).await?
+            config
+                .client
+                .get_with_cookies(&detail_url, Some(&cookie_header))
+                .await?
         } else {
-            config.client.get_with_cookies(&detail_url, Some("adc=1")).await?
+            config
+                .client
+                .get_with_cookies(&detail_url, Some("adc=1"))
+                .await?
         };
 
         let html = Html::parse_document(&html_text);
@@ -382,11 +402,17 @@ mod tests {
 
         // Without trailing slash
         let url1 = scraper.normalize_url("/product/product_detail/SIRO-123");
-        assert_eq!(url1, "https://www.mgstage.com/product/product_detail/SIRO-123/");
+        assert_eq!(
+            url1,
+            "https://www.mgstage.com/product/product_detail/SIRO-123/"
+        );
 
         // With trailing slash
         let url2 = scraper.normalize_url("/product/product_detail/SIRO-123/");
-        assert_eq!(url2, "https://www.mgstage.com/product/product_detail/SIRO-123/");
+        assert_eq!(
+            url2,
+            "https://www.mgstage.com/product/product_detail/SIRO-123/"
+        );
     }
 
     #[test]
@@ -404,7 +430,10 @@ mod tests {
 
         let html = Html::parse_document(html_content);
         let result = scraper.parse_search_results(&html, "SIRO-123").unwrap();
-        assert_eq!(result, "https://www.mgstage.com/product/product_detail/SIRO-123/");
+        assert_eq!(
+            result,
+            "https://www.mgstage.com/product/product_detail/SIRO-123/"
+        );
     }
 
     #[test]
@@ -431,7 +460,12 @@ mod tests {
         "#;
 
         let html = Html::parse_document(html_content);
-        let metadata = scraper.parse_detail_metadata(&html, "https://www.mgstage.com/product/product_detail/SIRO-123/").unwrap();
+        let metadata = scraper
+            .parse_detail_metadata(
+                &html,
+                "https://www.mgstage.com/product/product_detail/SIRO-123/",
+            )
+            .unwrap();
 
         assert!(metadata.title.contains("Test Movie Title"));
         assert_eq!(metadata.number, "SIRO-123");

@@ -46,19 +46,13 @@ pub enum ScraperOutcome {
     NotFound,
 
     /// Page found but parsing failed
-    ParseError {
-        message: String,
-    },
+    ParseError { message: String },
 
     /// Metadata retrieved but validation failed
-    InvalidMetadata {
-        reason: String,
-    },
+    InvalidMetadata { reason: String },
 
     /// Generic error
-    Error {
-        message: String,
-    },
+    Error { message: String },
 }
 
 /// Complete scraping attempt result with diagnostics
@@ -297,7 +291,9 @@ impl ScraperRegistry {
         config: &ScraperConfig,
     ) -> Result<Option<MovieMetadata>> {
         // Call detailed version and extract just the metadata
-        let result = self.search_with_ids_detailed(display_id, content_id, sources, config).await?;
+        let result = self
+            .search_with_ids_detailed(display_id, content_id, sources, config)
+            .await?;
         Ok(result.metadata)
     }
 
@@ -306,7 +302,10 @@ impl ScraperRegistry {
         let error_msg = error.to_string().to_lowercase();
 
         // Check for 404/not found
-        if error_msg.contains("404") || error_msg.contains("not found") || error_msg.contains("page not found") {
+        if error_msg.contains("404")
+            || error_msg.contains("not found")
+            || error_msg.contains("page not found")
+        {
             return ScraperOutcome::NotFound;
         }
 
@@ -316,7 +315,8 @@ impl ScraperRegistry {
             || error_msg.contains("network")
             || error_msg.contains("dns")
             || error_msg.contains("refused")
-            || error_msg.contains("unreachable") {
+            || error_msg.contains("unreachable")
+        {
             // Try to extract status code
             let status_code = Self::extract_status_code(&error_msg);
             return ScraperOutcome::NetworkError {
@@ -329,7 +329,8 @@ impl ScraperRegistry {
         if error_msg.contains("parse")
             || error_msg.contains("missing field")
             || error_msg.contains("missing required")
-            || error_msg.contains("failed to extract") {
+            || error_msg.contains("failed to extract")
+        {
             return ScraperOutcome::ParseError {
                 message: error.to_string(),
             };
@@ -368,7 +369,7 @@ impl ScraperRegistry {
     fn infer_source_from_url(&self, url: &str) -> Option<String> {
         let url_lower = url.to_lowercase();
 
-        for (source, _) in &self.scrapers {
+        for source in self.scrapers.keys() {
             if url_lower.contains(source) {
                 return Some(source.clone());
             }
@@ -411,7 +412,11 @@ impl ScraperRegistry {
             Some("carib") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
             Some("1pon") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
             Some("heyzo") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
-            Some("okp") => Some(vec!["javbus".to_string(), "javdb".to_string(), "mgstage".to_string()]),
+            Some("okp") => Some(vec![
+                "javbus".to_string(),
+                "javdb".to_string(),
+                "mgstage".to_string(),
+            ]),
             Some("mura") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
             Some("paco") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
             Some("10mu") => Some(vec!["javbus".to_string(), "javdb".to_string()]),
@@ -451,10 +456,12 @@ mod tests {
 
         fn parse_metadata(&self, _html: &Html, _url: &str) -> Result<MovieMetadata> {
             if self.should_succeed {
-                let mut meta = MovieMetadata::default();
-                meta.number = "TEST-001".to_string();
-                meta.title = format!("Test from {}", self.source);
-                meta.cover = "http://example.com/cover.jpg".to_string();
+                let meta = MovieMetadata {
+                    number: "TEST-001".to_string(),
+                    title: format!("Test from {}", self.source),
+                    cover: "http://example.com/cover.jpg".to_string(),
+                    ..Default::default()
+                };
                 Ok(meta)
             } else {
                 Err(anyhow::anyhow!("Mock failure"))
@@ -542,10 +549,12 @@ mod tests {
         }
 
         fn parse_metadata(&self, _html: &Html, _url: &str) -> Result<MovieMetadata> {
-            let mut meta = MovieMetadata::default();
-            meta.number = "TEST-001".to_string();
-            meta.title = "Test Movie".to_string();
-            meta.cover = "http://example.com/cover.jpg".to_string();
+            let meta = MovieMetadata {
+                number: "TEST-001".to_string(),
+                title: "Test Movie".to_string(),
+                cover: "http://example.com/cover.jpg".to_string(),
+                ..Default::default()
+            };
             Ok(meta)
         }
     }

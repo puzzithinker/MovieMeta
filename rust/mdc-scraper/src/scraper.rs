@@ -21,19 +21,14 @@ fn extract_domain_from_url(url: &str) -> Option<String> {
 /// Different scrapers may require different ID formats:
 /// - Display: Human-readable format like "SSIS-123" (most scrapers)
 /// - Content: API format like "ssis00123" (DMM, JAVLibrary)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IdFormat {
     /// Display format: "SSIS-123" (human-readable, with hyphen)
+    #[default]
     Display,
 
     /// Content format: "ssis00123" (lowercase, zero-padded, for APIs)
     Content,
-}
-
-impl Default for IdFormat {
-    fn default() -> Self {
-        IdFormat::Display
-    }
 }
 
 /// Scraper configuration passed to each scraper
@@ -185,7 +180,7 @@ pub trait Scraper: Send + Sync {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// fn domain(&self) -> Option<&str> {
     ///     Some("javbus.com")
     /// }
@@ -209,7 +204,10 @@ pub trait Scraper: Send + Sync {
                 if config.debug {
                     tracing::debug!("[{}] Using cookies for {}", self.source(), domain);
                 }
-                config.client.get_with_cookies(url, Some(&cookie_header)).await?
+                config
+                    .client
+                    .get_with_cookies(url, Some(&cookie_header))
+                    .await?
             } else {
                 config.client.get(url).await?
             }
@@ -218,9 +216,16 @@ pub trait Scraper: Send + Sync {
             if let Some(domain) = extract_domain_from_url(url) {
                 if let Some(cookie_header) = config.get_cookie_header(&domain) {
                     if config.debug {
-                        tracing::debug!("[{}] Using cookies for {} (auto-detected)", self.source(), domain);
+                        tracing::debug!(
+                            "[{}] Using cookies for {} (auto-detected)",
+                            self.source(),
+                            domain
+                        );
                     }
-                    config.client.get_with_cookies(url, Some(&cookie_header)).await?
+                    config
+                        .client
+                        .get_with_cookies(url, Some(&cookie_header))
+                        .await?
                 } else {
                     config.client.get(url).await?
                 }
@@ -352,10 +357,12 @@ mod tests {
         }
 
         fn parse_metadata(&self, _html: &Html, _url: &str) -> Result<MovieMetadata> {
-            let mut meta = MovieMetadata::default();
-            meta.number = "TEST-001".to_string();
-            meta.title = "Test Movie".to_string();
-            meta.cover = "http://example.com/cover.jpg".to_string();
+            let meta = MovieMetadata {
+                number: "TEST-001".to_string(),
+                title: "Test Movie".to_string(),
+                cover: "http://example.com/cover.jpg".to_string(),
+                ..Default::default()
+            };
             Ok(meta)
         }
     }

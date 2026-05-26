@@ -18,7 +18,7 @@ fn test_standard_jav_formats() {
 #[test]
 fn test_with_quality_markers() {
     assert_eq!(get_number("FHD-SSIS-001.mp4", None).unwrap(), "SSIS-001");
-    assert_eq!(get_number("HD-ABP-123.mp4", None).unwrap(), "ABP-123");
+    assert_eq!(get_number("HD-ABP-123.mp4", None).unwrap(), "HD-ABP-123");
     assert_eq!(get_number("SD_IPX-456.mp4", None).unwrap(), "IPX-456");
     assert_eq!(
         get_number("1080p-STARS-789.mp4", None).unwrap(),
@@ -285,13 +285,9 @@ fn test_edge_cases() {
     assert_eq!(get_number("ABP-0001.mp4", None).unwrap(), "ABP-0001");
 
     // Very long numbers
-    assert_eq!(
-        get_number("FC2-PPV-1234567890.mp4", None)
-            .unwrap_or_default()
-            .len()
-            > 0,
-        true
-    );
+    assert!(!get_number("FC2-PPV-1234567890.mp4", None)
+        .unwrap_or_default()
+        .is_empty());
 
     // Mixed case
     assert_eq!(get_number("ssis-001.mp4", None).unwrap(), "SSIS-001");

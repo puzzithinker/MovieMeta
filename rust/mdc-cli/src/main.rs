@@ -18,9 +18,8 @@ use mdc_core::{
     ProcessingMode, ProcessingStats, ProcessorConfig,
 };
 use mdc_scraper::scrapers::{
-    AvmooScraper, DmmScraper, Fc2Scraper, ImdbScraper, Jav321Scraper, JavbusScraper,
-    JavdbScraper, JavlibraryScraper, MgstageScraper, R18DevScraper, TmdbScraper,
-    TokyohotScraper,
+    AvmooScraper, DmmScraper, Fc2Scraper, ImdbScraper, Jav321Scraper, JavbusScraper, JavdbScraper,
+    JavlibraryScraper, MgstageScraper, R18DevScraper, TmdbScraper, TokyohotScraper,
 };
 use mdc_scraper::{ScraperClient, ScraperConfig, ScraperRegistry};
 use std::path::{Path, PathBuf};
@@ -527,7 +526,8 @@ async fn main() -> Result<()> {
                     "No metadata found for {}/{}{}",
                     dual_id.display,
                     dual_id.content,
-                    dual_id.special_site
+                    dual_id
+                        .special_site
                         .map(|s| format!(" [{}]", s))
                         .unwrap_or_default()
                 )),
@@ -585,10 +585,8 @@ async fn main() -> Result<()> {
             }
 
             // Confirm action (unless --yes flag is set)
-            let should_delete = if cli.yes {
+            let should_delete = if cli.yes || cli.dry_run {
                 true
-            } else if cli.dry_run {
-                true // Dry run doesn't need confirmation
             } else {
                 print!(
                     "\n{} these files? (y/N): ",

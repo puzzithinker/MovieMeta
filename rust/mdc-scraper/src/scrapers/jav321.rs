@@ -43,27 +43,26 @@ impl Jav321Scraper {
 
         // Extract ID (品番) - Pattern: <b>品番</b>: (.*)<br><b>
         static ID_RE: OnceLock<Regex> = OnceLock::new();
-        let id_re = ID_RE.get_or_init(|| {
-            Regex::new(r#"<b>品番</b>:\s*([^<]+)<br>"#).unwrap()
-        });
+        let id_re = ID_RE.get_or_init(|| Regex::new(r#"<b>品番</b>:\s*([^<]+)<br>"#).unwrap());
         if let Some(cap) = id_re.captures(&html_text) {
-            metadata.number = cap.get(1).map(|m| m.as_str().trim().to_uppercase()).unwrap_or_default();
+            metadata.number = cap
+                .get(1)
+                .map(|m| m.as_str().trim().to_uppercase())
+                .unwrap_or_default();
         }
 
         // Extract title - Pattern: <div class="panel-heading"><h3>(.*) <small>
         static TITLE_RE: OnceLock<Regex> = OnceLock::new();
-        let title_re = TITLE_RE.get_or_init(|| {
-            Regex::new(r#"<div class="panel-heading"><h3>([^<]+)<small"#).unwrap()
-        });
+        let title_re = TITLE_RE
+            .get_or_init(|| Regex::new(r#"<div class="panel-heading"><h3>([^<]+)<small"#).unwrap());
         if let Some(cap) = title_re.captures(&html_text) {
             metadata.title = self.clean_text(cap.get(1).map(|m| m.as_str()).unwrap_or_default());
         }
 
         // Extract release date - Pattern: <b>(.*)</b>: (\d{4}-\d{2}-\d{2})<br>
         static DATE_RE: OnceLock<Regex> = OnceLock::new();
-        let date_re = DATE_RE.get_or_init(|| {
-            Regex::new(r#"<b>[^<]*</b>:\s*(\d{4}-\d{2}-\d{2})<br>"#).unwrap()
-        });
+        let date_re = DATE_RE
+            .get_or_init(|| Regex::new(r#"<b>[^<]*</b>:\s*(\d{4}-\d{2}-\d{2})<br>"#).unwrap());
         if let Some(cap) = date_re.captures(&html_text) {
             if let Some(date_match) = cap.get(1) {
                 metadata.release = date_match.as_str().to_string();
@@ -72,9 +71,8 @@ impl Jav321Scraper {
 
         // Extract runtime - Pattern: <b>(.*)</b>: (\d{1,3}) minutes<br>
         static RUNTIME_RE: OnceLock<Regex> = OnceLock::new();
-        let runtime_re = RUNTIME_RE.get_or_init(|| {
-            Regex::new(r#"<b>[^<]*</b>:\s*(\d{1,3})\s*minutes?<br>"#).unwrap()
-        });
+        let runtime_re = RUNTIME_RE
+            .get_or_init(|| Regex::new(r#"<b>[^<]*</b>:\s*(\d{1,3})\s*minutes?<br>"#).unwrap());
         if let Some(cap) = runtime_re.captures(&html_text) {
             if let Some(runtime_match) = cap.get(1) {
                 metadata.runtime = runtime_match.as_str().to_string();
@@ -83,9 +81,8 @@ impl Jav321Scraper {
 
         // Extract maker/studio - Pattern: <b>メーカー</b>: (.*)>(.*)</a><br><b>ジャンル
         static MAKER_RE: OnceLock<Regex> = OnceLock::new();
-        let maker_re = MAKER_RE.get_or_init(|| {
-            Regex::new(r#"<b>メーカー</b>:[^>]*>([^<]+)</a>"#).unwrap()
-        });
+        let maker_re =
+            MAKER_RE.get_or_init(|| Regex::new(r#"<b>メーカー</b>:[^>]*>([^<]+)</a>"#).unwrap());
         if let Some(cap) = maker_re.captures(&html_text) {
             if let Some(maker_match) = cap.get(1) {
                 metadata.studio = self.clean_text(maker_match.as_str());
@@ -94,9 +91,8 @@ impl Jav321Scraper {
 
         // Extract genres - Pattern: <a href="/genre/.+?">(.+?)</a>
         static GENRE_RE: OnceLock<Regex> = OnceLock::new();
-        let genre_re = GENRE_RE.get_or_init(|| {
-            Regex::new(r#"<a href="/genre/[^"]+">([^<]+)</a>"#).unwrap()
-        });
+        let genre_re =
+            GENRE_RE.get_or_init(|| Regex::new(r#"<a href="/genre/[^"]+">([^<]+)</a>"#).unwrap());
         metadata.tag = genre_re
             .captures_iter(&html_text)
             .filter_map(|cap| cap.get(1).map(|m| self.clean_text(m.as_str())))
@@ -116,9 +112,8 @@ impl Jav321Scraper {
 
         // Extract screenshots - Pattern: (https://www.jav321.com/digital/video/(.*)/(.*)jpg)
         static SCREENSHOT_RE: OnceLock<Regex> = OnceLock::new();
-        let screenshot_re = SCREENSHOT_RE.get_or_init(|| {
-            Regex::new(r#"(https://[^"]*jav321\.com/[^"]*\.jpg)"#).unwrap()
-        });
+        let screenshot_re = SCREENSHOT_RE
+            .get_or_init(|| Regex::new(r#"(https://[^"]*jav321\.com/[^"]*\.jpg)"#).unwrap());
         metadata.extrafanart = screenshot_re
             .captures_iter(&html_text)
             .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
@@ -127,21 +122,22 @@ impl Jav321Scraper {
 
         // Extract actresses - Pattern: https://www\.jav321\.com/mono/actjpgs/(.*)">(.*)</a>
         static ACTRESS_RE: OnceLock<Regex> = OnceLock::new();
-        let actress_re = ACTRESS_RE.get_or_init(|| {
-            Regex::new(r#"/mono/actjpgs/[^"]*">([^<]+)</a>"#).unwrap()
-        });
+        let actress_re =
+            ACTRESS_RE.get_or_init(|| Regex::new(r#"/mono/actjpgs/[^"]*">([^<]+)</a>"#).unwrap());
         metadata.actor = actress_re
             .captures_iter(&html_text)
-            .filter_map(|cap| cap.get(1).map(|m| {
-                // Remove parenthetical text
-                let name = m.as_str();
-                let cleaned = if let Some(pos) = name.find('(') {
-                    &name[..pos]
-                } else {
-                    name
-                };
-                self.clean_text(cleaned)
-            }))
+            .filter_map(|cap| {
+                cap.get(1).map(|m| {
+                    // Remove parenthetical text
+                    let name = m.as_str();
+                    let cleaned = if let Some(pos) = name.find('(') {
+                        &name[..pos]
+                    } else {
+                        name
+                    };
+                    self.clean_text(cleaned)
+                })
+            })
             .filter(|s| !s.is_empty())
             .collect();
 
@@ -258,7 +254,9 @@ mod tests {
         "#;
 
         let html = Html::parse_document(html_content);
-        let metadata = scraper.parse_detail_metadata(&html, "https://jp.jav321.com/video/ssis-123").unwrap();
+        let metadata = scraper
+            .parse_detail_metadata(&html, "https://jp.jav321.com/video/ssis-123")
+            .unwrap();
 
         assert!(metadata.title.contains("Test Movie Title"));
         assert_eq!(metadata.number, "SSIS-123");

@@ -54,59 +54,56 @@ impl Scraper for TmdbScraper {
     }
 
     fn parse_metadata(&self, html: &Html, url: &str) -> Result<MovieMetadata> {
-        let mut metadata = MovieMetadata::default();
-
-        // Extract metadata using CSS selectors (converted from XPath)
-
-        // Title: //head/meta[@property="og:title"]/@content
-        metadata.title = self.select_attr(html, r#"meta[property="og:title"]"#, "content");
-
-        // Release: //div/span[@class="release"]/text()
-        metadata.release = self.select_text(html, "div span.release");
-
-        // Cover: //head/meta[@property="og:image"]/@content
+        let title = self.select_attr(html, r#"meta[property="og:title"]"#, "content");
+        let release = self.select_text(html, "div span.release");
         let cover_path = self.select_attr(html, r#"meta[property="og:image"]"#, "content");
-        if !cover_path.is_empty() {
-            // Prepend TMDB base URL if needed
+        let cover = if !cover_path.is_empty() {
             if cover_path.starts_with("http") {
-                metadata.cover = cover_path;
+                cover_path
             } else {
-                metadata.cover = format!("https://www.themoviedb.org{}", cover_path);
+                format!("https://www.themoviedb.org{}", cover_path)
             }
-        }
+        } else {
+            String::new()
+        };
+        let outline = self.select_attr(html, r#"meta[property="og:description"]"#, "content");
 
-        // Outline: //head/meta[@property="og:description"]/@content
-        metadata.outline = self.select_attr(html, r#"meta[property="og:description"]"#, "content");
+        let number = url
+            .split('/')
+            .nth_back(0)
+            .and_then(|id| id.split('?').next())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
 
-        // Extract movie ID from URL
-        if let Some(id) = url.split('/').nth_back(0) {
-            if let Some(clean_id) = id.split('?').next() {
-                metadata.number = clean_id.to_string();
-            }
-        }
+        let runtime = self.select_text(html, "span.runtime");
+        let director = self.select_text(html, "li.profile a[href*='/person/']");
+        let actor = self.select_all_text(html, "ol.people li p a");
+        let tag = self.select_all_text(html, "span.genres a");
 
-        // Additional fields from the page (if available)
-
-        // Runtime (e.g., "120 min")
-        metadata.runtime = self.select_text(html, "span.runtime");
-
-        // Director
-        metadata.director = self.select_text(html, "li.profile a[href*='/person/']");
-
-        // Actors
-        metadata.actor = self.select_all_text(html, "ol.people li p a");
-
-        // Genres/Tags
-        metadata.tag = self.select_all_text(html, "span.genres a");
-
-        // Rating
         let rating_str = self.select_attr(html, r#"div.user_score_chart"#, "data-percent");
-        if !rating_str.is_empty() {
-            if let Ok(percent) = rating_str.parse::<f32>() {
-                // Convert percentage (0-100) to rating (0-10)
-                metadata.userrating = percent / 10.0;
-            }
-        }
+        let userrating = if !rating_str.is_empty() {
+            rating_str
+                .parse::<f32>()
+                .ok()
+                .map(|p| p / 10.0)
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        let metadata = MovieMetadata {
+            title,
+            release,
+            cover,
+            outline,
+            number,
+            runtime,
+            director,
+            actor,
+            tag,
+            userrating,
+            ..Default::default()
+        };
 
         Ok(metadata)
     }

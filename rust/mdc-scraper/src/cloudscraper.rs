@@ -219,10 +219,14 @@ impl CloudScraperClient {
 
         // Check if cloudscraper module is installed
         let module_check = Command::new(&self.python_path)
-            .args(&["-c", "import cloudscraper"])
+            .args(["-c", "import cloudscraper"])
             .output();
 
-        module_check.is_ok() && module_check.as_ref().map(|o| o.status.success()).unwrap_or(false)
+        module_check.is_ok()
+            && module_check
+                .as_ref()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
     }
 }
 
@@ -260,7 +264,7 @@ mod tests {
         assert_eq!(client.user_agent, "TestBot/1.0");
         assert_eq!(client.timeout, 30);
         assert_eq!(client.proxy, Some("http://localhost:8080".to_string()));
-        assert_eq!(client.verify_ssl, true);
-        assert_eq!(client.debug, true);
+        assert!(client.verify_ssl);
+        assert!(client.debug);
     }
 }

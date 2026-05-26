@@ -90,7 +90,7 @@ impl ImageProcessor {
     }
 
     /// Create with default configuration
-    pub fn default() -> Self {
+    pub fn create_default() -> Self {
         Self {
             config: ProcessorConfig::default(),
         }
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_processor_creation() {
-        let processor = ImageProcessor::default();
+        let processor = ImageProcessor::create_default();
         assert_eq!(processor.config.aspect_ratio, 2.0 / 3.0);
     }
 

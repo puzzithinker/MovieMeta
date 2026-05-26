@@ -101,7 +101,7 @@ async fn test_organizing_mode_multiple_files() {
     let processor = BatchProcessor::new(config, 2); // 2 concurrent tasks
     let metadata_provider = mock_metadata_provider();
 
-    let (results, stats) = processor
+    let (_results, stats) = processor
         .process_batch(files.clone(), metadata_provider, None)
         .await
         .unwrap();
@@ -266,7 +266,7 @@ async fn test_multi_part_files() {
     let processor = BatchProcessor::new(config, 2);
     let metadata_provider = mock_metadata_provider();
 
-    let (results, stats) = processor
+    let (_results, stats) = processor
         .process_batch(files, metadata_provider, None)
         .await
         .unwrap();
@@ -556,7 +556,7 @@ async fn test_concurrent_processing() {
         *progress_count_clone.lock().unwrap() += 1;
     });
 
-    let (results, stats) = processor
+    let (_results, stats) = processor
         .process_batch(files, metadata_provider, Some(progress_callback))
         .await
         .unwrap();

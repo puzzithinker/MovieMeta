@@ -371,7 +371,12 @@ mod tests {
                 // Update max if needed
                 let mut max = max_clone.load(Ordering::SeqCst);
                 while current > max {
-                    match max_clone.compare_exchange(max, current, Ordering::SeqCst, Ordering::SeqCst) {
+                    match max_clone.compare_exchange(
+                        max,
+                        current,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    ) {
                         Ok(_) => break,
                         Err(x) => max = x,
                     }
@@ -513,7 +518,10 @@ mod tests {
         let captured_clone = captured_ids.clone();
 
         let metadata_provider = Arc::new(move |dual_id: DualId| {
-            captured_clone.lock().unwrap().push((dual_id.display.clone(), dual_id.content.clone()));
+            captured_clone
+                .lock()
+                .unwrap()
+                .push((dual_id.display.clone(), dual_id.content.clone()));
             async move {
                 Ok(json!({
                     "number": dual_id.display,
@@ -537,7 +545,9 @@ mod tests {
 
         // Check that we have both display and content formats
         assert!(ids.iter().any(|(display, _)| display == "SSIS-123"));
-        assert!(ids.iter().any(|(display, content)| display == "FC2-PPV-1234567" && content.contains("fc2")));
+        assert!(ids
+            .iter()
+            .any(|(display, content)| display == "FC2-PPV-1234567" && content.contains("fc2")));
     }
 
     #[tokio::test]
@@ -582,8 +592,11 @@ mod tests {
             assert!(!result.success);
             assert!(result.error.is_some());
             let error = result.error.as_ref().unwrap();
-            assert!(error.contains("parsing") || error.contains("extract"),
-                    "Error should mention parsing: {}", error);
+            assert!(
+                error.contains("parsing") || error.contains("extract"),
+                "Error should mention parsing: {}",
+                error
+            );
         }
     }
 

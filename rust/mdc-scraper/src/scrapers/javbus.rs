@@ -86,7 +86,7 @@ impl Scraper for JavbusScraper {
         metadata.title = self.clean_text(&metadata.title);
 
         // Number: Extract from URL or title
-        if let Some(number_part) = url.split('/').last() {
+        if let Some(number_part) = url.split('/').next_back() {
             metadata.number = number_part.to_uppercase();
         }
 

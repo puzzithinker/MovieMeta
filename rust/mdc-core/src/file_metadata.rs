@@ -3,9 +3,9 @@
 //! This module provides utilities to capture file metadata before deletion operations,
 //! enabling comprehensive audit trails for file operations.
 
-use std::path::Path;
-use std::fs;
 use chrono::{DateTime, Local};
+use std::fs;
+use std::path::Path;
 
 /// File metadata snapshot for logging purposes
 ///
@@ -52,12 +52,13 @@ impl FileSnapshot {
     pub fn capture(path: &Path) -> Self {
         match fs::metadata(path) {
             Ok(metadata) => {
-                let modified = metadata.modified()
+                let modified = metadata
+                    .modified()
                     .ok()
-                    .and_then(|t| {
+                    .map(|t| {
                         // Convert SystemTime to DateTime<Local>
                         let dt: DateTime<Local> = t.into();
-                        Some(dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
                     })
                     .unwrap_or_else(|| "unknown".to_string());
 
@@ -68,14 +69,12 @@ impl FileSnapshot {
                     exists: true,
                 }
             }
-            Err(_) => {
-                Self {
-                    path: path.display().to_string(),
-                    size_bytes: 0,
-                    modified: "unknown".to_string(),
-                    exists: false,
-                }
-            }
+            Err(_) => Self {
+                path: path.display().to_string(),
+                size_bytes: 0,
+                modified: "unknown".to_string(),
+                exists: false,
+            },
         }
     }
 
